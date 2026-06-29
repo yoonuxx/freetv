@@ -1,23 +1,19 @@
 [build]
   publish = "."
   functions = "netlify/functions"
+  edge_functions = "netlify/edge-functions"
 
-# Route all server API calls to their Netlify Function equivalents
+[[edge_functions]]
+  path = "/proxy"
+  function = "proxy"
+
+[[edge_functions]]
+  path = "/proxy/*"
+  function = "proxy"
+
 [[redirects]]
   from   = "/fetch-playlist"
   to     = "/.netlify/functions/fetch-playlist"
-  status = 200
-  force  = true
-
-[[redirects]]
-  from   = "/proxy"
-  to     = "/.netlify/functions/proxy"
-  status = 200
-  force  = true
-
-[[redirects]]
-  from   = "/proxy/*"
-  to     = "/.netlify/functions/proxy"
   status = 200
   force  = true
 
