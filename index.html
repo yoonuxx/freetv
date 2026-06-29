@@ -1,0 +1,1817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FreeTV Player</title>
+<script src="https://ajax.googleapis.com/ajax/libs/shaka-player/4.7.11/shaka-player.compiled.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0d12;--bg2:#13131c;--bg3:#1a1a27;--bg4:#22223a;
+  --border:#2a2a3e;--accent:#a855f7;--accent2:#ec4899;
+  --accent-glow:rgba(168,85,247,.25);--text:#e8e8f0;--text2:#9898b8;
+  --text3:#5a5a7a;--live:#22c55e;--radius:10px;--sidebar-w:300px;
+}
+html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
+
+/* ── Splash / Boot Screen ── */
+#splash{
+  position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(168,85,247,.18) 0%,transparent 70%),url('https://i.8upload.com/image/3dd7ba2852081149/background.png') center/cover no-repeat,var(--bg);
+  transition:opacity .35s;
+}
+#splash.fade-out{opacity:0;pointer-events:none}
+.splash-inner{display:flex;flex-direction:column;align-items:center;gap:20px;text-align:center}
+.splash-logo{display:flex;align-items:center;gap:12px;font-size:24px;font-weight:600;letter-spacing:-.5px}
+.splash-sub{font-size:14px;color:var(--text3)}
+.splash-spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+.splash-error{color:#fca5a5;font-size:13px;max-width:340px;line-height:1.55;padding:12px 16px;
+  background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:8px}
+.splash-retry{margin-top:4px;padding:9px 20px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+  border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:600;cursor:pointer}
+
+/* ── App Layout ── */
+#app{display:grid;grid-template-columns:var(--sidebar-w) 1fr;height:100vh;overflow:hidden;transition:grid-template-columns .25s}
+#app.sidebar-closed{grid-template-columns:0 1fr}
+#app.sidebar-closed #sidebar{opacity:0;pointer-events:none}
+
+/* ── Sidebar ── */
+#sidebar{background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:opacity .25s}
+.sidebar-header{padding:16px 16px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+.sidebar-title{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;margin-bottom:4px}
+.sidebar-title svg{color:var(--accent)}
+.channel-count{font-size:12px;color:var(--text3)}
+.channel-search{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+.channel-search input{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-size:13px}
+.channel-search input::placeholder{color:var(--text3)}
+.channel-items{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.back-btn{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;background:var(--bg3);border:none;
+  border-bottom:1px solid var(--border);color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;text-align:left}
+.back-btn:hover{background:var(--bg4)}
+.back-btn .back-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.folder-item{display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;background:transparent;border:none;
+  color:var(--text2);font-size:13px;cursor:pointer;text-align:left;transition:background .12s,color .12s}
+.folder-item:hover{background:var(--bg3);color:var(--text)}
+.folder-item.has-active{color:var(--text)}
+.folder-icon{flex-shrink:0;color:var(--text3);transition:color .12s}
+.folder-item:hover .folder-icon,.folder-item.has-active .folder-icon{color:var(--accent)}
+.folder-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.folder-count{font-size:11px;color:var(--text3);background:var(--bg4);padding:2px 8px;border-radius:10px;flex-shrink:0}
+.channel-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;background:transparent;border:none;
+  color:var(--text2);font-size:13px;cursor:pointer;text-align:left;transition:background .12s,color .12s;position:relative}
+.channel-item:hover{background:var(--bg3);color:var(--text)}
+.channel-item.active{background:linear-gradient(90deg,rgba(168,85,247,.15),transparent);color:var(--text);border-left:2px solid var(--accent)}
+.channel-logo{width:28px;height:28px;border-radius:6px;background:var(--bg4);display:flex;align-items:center;
+  justify-content:center;flex-shrink:0;overflow:hidden}
+.channel-logo img{width:100%;height:100%;object-fit:contain}
+.channel-meta{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.channel-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.channel-group-small{font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.playing-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent);
+  animation:pulse 1.5s ease-in-out infinite;flex-shrink:0}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
+.empty-msg{padding:40px 16px;text-align:center;color:var(--text3);font-size:13px}
+.sidebar-footer{padding:12px;border-top:1px solid var(--border);flex-shrink:0;display:flex;flex-direction:column;gap:8px}
+.load-new-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:10px;
+  background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:13px;cursor:pointer;transition:all .15s}
+.load-new-btn:hover{background:var(--bg4);color:var(--text)}
+
+/* ── Custom URL Dialog ── */
+#url-dialog{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)}
+#url-dialog.open{display:flex}
+.url-dialog-card{
+  position:relative;isolation:isolate;
+  background:var(--bg2);border:none;border-radius:14px;padding:24px;width:100%;max-width:440px;
+  box-shadow:0 24px 80px rgba(0,0,0,.5)
+}
+.url-dialog-card::before{
+  content:'';position:absolute;inset:-2px;border-radius:16px;z-index:-1;
+  background:conic-gradient(from var(--edge-angle),#a855f7 0%,#ec4899 20%,#06b6d4 40%,#7c3aed 60%,#ec4899 80%,#a855f7 100%);
+  animation:edge-spin 1s linear infinite;
+  filter:blur(1px);
+}
+.url-dialog-card::after{
+  content:'';position:absolute;inset:2px;border-radius:12px;z-index:-1;background:var(--bg2);
+}
+.url-dialog-title{font-size:16px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.url-dialog-title svg{color:var(--accent)}
+.url-dialog-input{width:100%;padding:11px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);
+  color:var(--text);font-size:13px;outline:none;font-family:monospace;margin-bottom:12px;transition:border-color .15s}
+.url-dialog-input:focus{border-color:var(--accent)}
+.url-dialog-actions{display:flex;gap:8px;justify-content:flex-end}
+.btn-cancel{padding:9px 18px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:13px;cursor:pointer}
+.btn-cancel:hover{background:var(--bg4);color:var(--text)}
+.btn-load{padding:9px 18px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:600;cursor:pointer}
+.url-dialog-error{color:#fca5a5;font-size:12px;margin-bottom:10px;display:none}
+
+/* ── Main Area ── */
+#main{display:flex;flex-direction:column;background:var(--bg);position:relative;overflow:hidden;min-width:0}
+#sidebar-toggle{position:absolute;left:12px;top:12px;z-index:20;width:32px;height:32px;border-radius:8px;
+  background:rgba(13,13,18,.7);border:1px solid var(--border);color:var(--text2);display:flex;align-items:center;
+  justify-content:center;cursor:pointer;backdrop-filter:blur(8px);transition:all .15s}
+#sidebar-toggle:hover{background:var(--bg3);color:var(--text)}
+#video-wrapper{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;background:#000}
+
+/* ── Player ── */
+#player-container{position:relative;width:100%;height:100%;background:#000;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;cursor:default}
+#player-video{width:100%;height:100%;object-fit:contain}
+.player-idle{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+.player-idle-inner{display:flex;flex-direction:column;align-items:center;gap:16px;color:var(--text3)}
+.player-idle-inner p{font-size:15px}
+.player-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:12px;background:rgba(0,0,0,.5);color:var(--text2);font-size:14px}
+.player-error{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:10px;background:rgba(10,10,15,.92);padding:32px;text-align:center}
+.error-icon{color:#f87171;margin-bottom:4px}
+.player-error h3{font-size:16px;font-weight:600;color:var(--text)}
+.player-error p{font-size:13px;color:var(--text2);max-width:340px;line-height:1.55}
+.error-actions{display:flex;gap:8px;margin-top:6px}
+.error-btn{display:flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;border:none;
+  font-size:13px;font-weight:500;cursor:pointer;transition:all .15s}
+.error-btn.secondary{background:var(--bg3);border:1px solid var(--border);color:var(--text2)}
+.error-btn.secondary:hover{background:var(--bg4);color:var(--text)}
+.error-btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.error-btn.primary:hover{opacity:.88}
+.proxy-note{font-size:11px;color:var(--text3);margin-top:2px}
+.error-ios-warning{
+  font-size:12px;font-weight:700;color:#fbbf24;text-align:center;line-height:1.55;
+  background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.7);
+  border-radius:8px;padding:10px 14px;max-width:320px;margin-top:12px;
+  animation:flashYellow 1s ease-in-out infinite;
+}
+.player-controls{position:absolute;bottom:0;left:0;right:0;padding:12px 16px;
+  background:linear-gradient(transparent,rgba(0,0,0,.85));display:flex;flex-direction:column;gap:8px;opacity:0;transition:opacity .2s}
+.player-controls.visible{opacity:1}
+.player-progress{display:flex;align-items:center;gap:10px}
+.time-label{font-size:12px;color:rgba(255,255,255,.7);min-width:42px}
+.progress-bar{-webkit-appearance:none;appearance:none;height:4px;border-radius:4px;outline:none;cursor:pointer;flex:1;background:linear-gradient(to right,var(--accent) var(--val,0%),rgba(255,255,255,.2) var(--val,0%))}
+.progress-bar::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 0 4px rgba(0,0,0,.4)}
+.player-buttons{display:flex;align-items:center;gap:8px}
+.ctrl-btn{background:transparent;border:none;color:rgba(255,255,255,.85);cursor:pointer;display:flex;
+  align-items:center;justify-content:center;padding:6px;border-radius:6px;transition:color .1s,background .1s}
+.ctrl-btn:hover{color:#fff;background:rgba(255,255,255,.1)}
+.ctrl-btn.ml-auto{margin-left:auto}
+.now-playing{display:flex;align-items:center;gap:8px;margin-left:4px;min-width:0}
+.live-badge{font-size:10px;font-weight:700;letter-spacing:.08em;background:var(--live);color:#fff;padding:2px 6px;border-radius:4px;flex-shrink:0}
+.proxy-badge{font-size:10px;font-weight:700;letter-spacing:.08em;background:#f59e0b;color:#000;padding:2px 6px;border-radius:4px;flex-shrink:0}
+.now-playing-name{font-size:13px;color:rgba(255,255,255,.9);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+.bw-display{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;
+  color:rgba(255,255,255,.6);background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.12);border-radius:5px;padding:2px 7px;white-space:nowrap;flex-shrink:0;
+  font-variant-numeric:tabular-nums;letter-spacing:.02em;margin-left:auto}
+
+/* ── Quality Selector ── */
+.quality-wrap{position:relative;display:flex;align-items:center}
+.quality-btn{background:transparent;border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.85);
+  cursor:pointer;display:flex;align-items:center;gap:5px;padding:4px 9px;border-radius:6px;
+  font-size:11px;font-weight:600;letter-spacing:.04em;transition:all .15s;white-space:nowrap}
+.quality-btn:hover{color:#fff;background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.45)}
+.quality-btn svg{flex-shrink:0}
+.quality-menu{position:absolute;bottom:calc(100% + 8px);right:0;min-width:130px;
+  background:rgba(18,18,28,.95);border:1px solid var(--border);border-radius:10px;
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  overflow:hidden;z-index:200;
+  transform-origin:bottom right;
+  animation:qualityIn .15s ease both}
+@keyframes qualityIn{from{opacity:0;transform:scale(.92) translateY(6px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.quality-menu.hidden{display:none}
+.quality-menu-header{font-size:10px;font-weight:600;letter-spacing:.08em;color:var(--text3);
+  padding:8px 12px 4px;text-transform:uppercase}
+.quality-option{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:8px 12px;font-size:13px;color:var(--text2);cursor:pointer;transition:background .1s}
+.quality-option:hover{background:rgba(255,255,255,.07);color:var(--text)}
+.quality-option.active{color:var(--accent);font-weight:600}
+.quality-option .q-check{opacity:0;color:var(--accent)}
+.quality-option.active .q-check{opacity:1}
+.quality-divider{height:1px;background:var(--border);margin:2px 0}
+
+/* ── Channel Nav Bar ── */
+#channel-nav{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0}
+.nav-btn{display:flex;align-items:center;gap:4px;padding:7px 14px;background:var(--bg3);border:1px solid var(--border);
+  border-radius:8px;color:var(--text2);font-size:13px;cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
+.nav-btn:hover:not(:disabled){background:var(--bg4);color:var(--text)}
+.nav-btn:disabled{opacity:.35;cursor:not-allowed}
+.channel-nav-info{flex:1;display:flex;align-items:center;gap:8px;justify-content:center;min-width:0}
+.channel-group-tag{font-size:11px;padding:2px 8px;background:rgba(168,85,247,.15);border:1px solid rgba(168,85,247,.3);
+  border-radius:20px;color:var(--accent);white-space:nowrap;flex-shrink:0}
+.channel-nav-name{font-size:14px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{animation:spin .8s linear infinite;display:inline-block}
+
+/* ── Samsung Edge Light ── */
+@property --edge-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
+@keyframes edge-spin{to{--edge-angle:360deg}}
+@keyframes popIn{
+  0%{opacity:0;transform:translateY(40px) scale(.94)}
+  60%{opacity:1;transform:translateY(-6px) scale(1.01)}
+  80%{transform:translateY(3px) scale(.99)}
+  100%{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes slideOut{
+  0%{opacity:1;transform:translateY(0) scale(1)}
+  30%{opacity:1;transform:translateY(-8px) scale(1.02)}
+  100%{opacity:0;transform:translateY(50px) scale(.94)}
+}
+@keyframes modalFadeOut{
+  from{opacity:1}to{opacity:0}
+}
+
+/* ── Disclaimer Modal ── */
+#disclaimer-modal{
+  position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;
+  background:url('https://i.8upload.com/image/3dd7ba2852081149/background.png') center/cover no-repeat;
+}
+#disclaimer-modal.hidden{display:none}
+#disclaimer-modal.hiding .disclaimer-card{animation:slideOut .45s cubic-bezier(.4,0,1,1) both}
+#disclaimer-modal.hiding{animation:modalFadeOut .45s ease forwards}
+.disclaimer-card{
+  position:relative;
+  background:rgba(13,13,18,0.55);border:none;border-radius:18px;
+  padding:32px 28px 28px;width:100%;max-width:380px;
+  box-shadow:0 32px 100px rgba(0,0,0,.6);
+  backdrop-filter:blur(30px) saturate(1.4);-webkit-backdrop-filter:blur(30px) saturate(1.4);
+  display:flex;flex-direction:column;align-items:center;gap:18px;
+  animation:popIn .55s cubic-bezier(.22,.68,0,1.2) both;
+}
+.disclaimer-card::before{
+  content:'';position:absolute;inset:-2px;border-radius:20px;z-index:-1;padding:2px;
+  background:conic-gradient(from var(--edge-angle),#a855f7 0%,#ec4899 20%,#06b6d4 40%,#7c3aed 60%,#ec4899 80%,#a855f7 100%);
+  animation:edge-spin 1s linear infinite;
+  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  -webkit-mask-composite:destination-out;
+  mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  mask-composite:exclude;
+}
+.disclaimer-card::after{display:none}
+.disclaimer-title{
+  font-size:22px;font-weight:700;letter-spacing:.06em;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  text-align:center;margin:0;
+}
+.disclaimer-divider{width:60px;height:2px;border-radius:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));flex-shrink:0}
+.disclaimer-text{
+  font-size:13px;color:var(--text2);line-height:1.65;text-align:center;max-width:300px;
+}
+.disclaimer-avatar{
+  width:88px;height:88px;border-radius:50%;overflow:hidden;
+  border:3px solid transparent;
+  background:linear-gradient(var(--bg2),var(--bg2)) padding-box,
+             linear-gradient(135deg,var(--accent),var(--accent2)) border-box;
+  flex-shrink:0;
+}
+.disclaimer-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.disclaimer-socials{display:flex;flex-direction:column;gap:10px;width:100%}
+.social-btn{
+  display:flex;align-items:center;gap:10px;padding:12px 18px;
+  border-radius:10px;border:none;color:#fff;font-size:14px;font-weight:600;
+  cursor:pointer;text-decoration:none;transition:opacity .15s,transform .1s;
+  width:100%;
+}
+.social-btn:hover{opacity:.88;transform:translateY(-1px)}
+.social-btn:active{transform:translateY(0)}
+.instagram-btn{background:linear-gradient(135deg,#833ab4 0%,#fd1d1d 50%,#fcb045 100%)}
+.telegram-btn{background:#0088cc}
+.social-btn svg{flex-shrink:0}
+@keyframes flashYellow{0%,100%{color:#fbbf24;border-color:rgba(251,191,36,.7);background:rgba(251,191,36,.12);}50%{color:#fde68a;border-color:rgba(251,191,36,.2);background:rgba(251,191,36,.03);}}
+.disclaimer-warning{
+  font-size:12px;font-weight:700;color:#fbbf24;text-align:center;line-height:1.55;
+  background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.7);
+  border-radius:8px;padding:10px 14px;max-width:300px;
+  animation:flashYellow 1s ease-in-out infinite;
+}
+.disclaimer-continue{
+  position:relative;isolation:isolate;
+  margin-top:2px;padding:10px 32px;
+  background:var(--bg3);border:none;border-radius:10px;
+  color:var(--text2);font-size:13px;font-weight:500;cursor:pointer;transition:color .15s,background .15s;
+}
+.disclaimer-continue::before{
+  content:'';position:absolute;inset:-2px;border-radius:12px;z-index:-1;
+  background:conic-gradient(from var(--edge-angle),#a855f7 0%,#ec4899 20%,#06b6d4 40%,#7c3aed 60%,#ec4899 80%,#a855f7 100%);
+  animation:edge-spin 1s linear infinite;
+  filter:blur(1px);
+}
+.disclaimer-continue::after{
+  content:'';position:absolute;inset:2px;border-radius:8px;z-index:-1;background:var(--bg3);transition:background .15s;
+}
+.disclaimer-continue:hover{color:var(--text)}
+.disclaimer-continue:hover::after{background:var(--bg4)}
+</style>
+</head>
+<body>
+
+<!-- SPLASH / AUTO-LOAD SCREEN -->
+<div id="splash">
+  <div class="splash-inner">
+    <div class="splash-logo">
+      <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+        <rect width="36" height="36" rx="10" fill="url(#lg)"/>
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#a855f7"/><stop offset="100%" stop-color="#ec4899"/>
+        </linearGradient></defs>
+        <path d="M10 13h2M10 18h2M10 23h2M14 11v14M16 13l8 5-8 5V13z" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      FreeTV
+    </div>
+    <div id="splash-spinner" class="splash-spinner"></div>
+    <div class="splash-sub" id="splash-status">Loading playlist…</div>
+    <div id="splash-error" class="splash-error" style="display:none"></div>
+    <button id="splash-retry" class="splash-retry" style="display:none" onclick="bootLoad()">Retry</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" style="display:none">
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
+        <span id="playlist-name">FreeTV</span>
+      </div>
+      <div class="channel-count" id="channel-count"></div>
+    </div>
+
+    <div class="channel-search">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="search-input" placeholder="Search channels…" oninput="renderList()" />
+    </div>
+
+    <div class="channel-items" id="channel-items"></div>
+
+    <div class="sidebar-footer">
+      <button class="load-new-btn" onclick="openUrlDialog()">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        Load different playlist
+      </button>
+      <button class="load-new-btn" onclick="reloadDefault()">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        Reload FreeTV
+      </button>
+      <button class="load-new-btn" id="refresh-btn" onclick="manualRefresh()">
+        <svg id="refresh-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>
+        Refresh Playlist
+      </button>
+    </div>
+  </aside>
+
+  <div id="main">
+    <button id="sidebar-toggle" onclick="toggleSidebar()">
+      <svg id="toggle-icon-left" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+      <svg id="toggle-icon-right" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
+
+    <div id="video-wrapper">
+      <div id="player-container">
+        <video id="player-video" playsinline></video>
+
+        <div class="player-idle" id="player-idle">
+          <div class="player-idle-inner">
+            <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24"><path d="M1 6 C1 4 3 3 5 4 L20 12 L5 20 C3 21 1 20 1 18Z"/></svg>
+            <p>Select a channel to start playing</p>
+          </div>
+        </div>
+
+        <div class="player-overlay" id="player-loading" style="display:none">
+          <span class="spin">
+            <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          </span>
+          <span>Connecting…</span>
+        </div>
+
+        <div class="player-error" id="player-error" style="display:none" onclick="event.stopPropagation()">
+          <div class="error-icon">
+            <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <h3 id="error-title">Stream unavailable</h3>
+          <p id="error-msg">The stream could not be loaded. It may be offline, blocked, or geo-restricted.</p>
+          <div class="error-actions">
+            <button class="error-btn secondary" onclick="retryStream()">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              Retry
+            </button>
+            <button class="error-btn primary" id="proxy-btn" onclick="retryWithProxy()">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Try via Proxy
+            </button>
+          </div>
+          <span class="proxy-note" id="proxy-note" style="display:none">Routed through corsproxy.io</span>
+          <div class="error-ios-warning">
+            ⚠ PLEASE BE AWARE THAT MOST OF THE CHANNELS DO NOT WORK ON WEBSITE (ESPECIALLY IOS USERS). IT WILL ONLY WORK BY DOWNLOADING THE APP. PLEASE DM TO DOWNLOAD THE APP
+          </div>
+        </div>
+
+        <div class="player-controls" id="player-controls" onclick="event.stopPropagation()">
+          <div class="player-progress" id="player-progress" style="display:none">
+            <span class="time-label" id="time-current">--:--</span>
+            <input type="range" class="progress-bar" id="progress-bar" min="0" max="100" step="0.1" value="0" oninput="seekTo(this.value)" style="--val:0%"/>
+            <span class="time-label" id="time-duration">--:--</span>
+          </div>
+          <div class="player-buttons">
+            <button class="ctrl-btn" onclick="togglePlay()">
+              <svg id="icon-play" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              <svg id="icon-pause" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+            <div class="now-playing">
+              <span class="live-badge" id="live-badge" style="display:none">LIVE</span>
+              <span class="proxy-badge" id="proxy-badge" style="display:none">PROXY</span>
+              <span class="now-playing-name" id="now-playing-name"></span>
+            </div>
+            <span class="bw-display" id="bw-display" style="display:none">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#22c55e" stroke="none"/>
+              </svg>
+              <span id="bw-text">-- kbps</span>
+            </span>
+            <div class="quality-wrap" id="quality-wrap" style="display:none">
+              <button class="quality-btn" id="quality-btn" onclick="toggleQualityMenu(event)">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M8.46 8.46a5 5 0 0 0 0 7.07"/></svg>
+                <span id="quality-label">Auto</span>
+              </button>
+              <div class="quality-menu hidden" id="quality-menu"></div>
+            </div>
+            <button class="ctrl-btn" id="pip-btn" onclick="togglePiP()" title="Picture in Picture" style="display:none">
+              <svg id="icon-pip" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="11" width="8" height="6" rx="1" fill="currentColor" stroke="none"/></svg>
+              <svg id="icon-pip-exit" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="11" width="8" height="6" rx="1" fill="currentColor" stroke="none"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+            </button>
+            <button class="ctrl-btn" onclick="toggleFullscreen()">
+              <svg id="icon-expand" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+              <svg id="icon-compress" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="channel-nav" style="display:none">
+      <button class="nav-btn" id="prev-btn" onclick="navigate(-1)">&#8249; Previous</button>
+      <div class="channel-nav-info">
+        <span class="channel-group-tag" id="nav-group" style="display:none"></span>
+        <span class="channel-nav-name" id="nav-name"></span>
+      </div>
+      <button class="nav-btn" id="next-btn" onclick="navigate(1)">Next &#8250;</button>
+    </div>
+  </div>
+</div>
+
+<!-- DISCLAIMER MODAL -->
+<div id="disclaimer-modal">
+  <div class="disclaimer-card">
+    <h2 class="disclaimer-title">DISCLAIMER</h2>
+    <div class="disclaimer-divider"></div>
+    <p class="disclaimer-text">This app streams publicly available content from third-party sources. The creator is not responsible for any content provided. By continuing, you agree to use this service at your own discretion.</p>
+    <p class="disclaimer-warning">⚠️ PLEASE BE AWARE THAT MOST OF THE CHANNELS DO NOT WORK ON WEBSITE (ESPECIALLY IOS USERS). IT WILL ONLY WORK BY DOWNLOADING THE APP. PLEASE DM TO DOWNLOAD THE APP</p>
+    <div class="disclaimer-avatar">
+      <img src="https://i.8upload.com/image/45da32388d5187e5/profile.jpg" alt="Creator" />
+    </div>
+    <div class="disclaimer-socials">
+      <a href="https://instagram.com/yoonus_shafeeu" target="_blank" rel="noopener" class="social-btn instagram-btn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+        </svg>
+        Instagram
+      </a>
+      <a href="https://t.me/yoonuss" target="_blank" rel="noopener" class="social-btn telegram-btn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+        </svg>
+        Telegram
+      </a>
+    </div>
+    <button class="disclaimer-continue" onclick="closeDisclaimer()">Continue to FreeTV</button>
+  </div>
+</div>
+
+<!-- CUSTOM URL DIALOG -->
+<div id="url-dialog">
+  <div class="url-dialog-card">
+    <div class="url-dialog-title">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      Load Playlist URL
+    </div>
+    <div id="url-dialog-error" class="url-dialog-error"></div>
+    <input id="url-dialog-input" class="url-dialog-input" type="url" placeholder="https://example.com/playlist.m3u" onkeydown="if(event.key==='Enter')dialogLoad()" />
+    <div class="url-dialog-actions">
+      <button class="btn-cancel" onclick="closeUrlDialog()">Cancel</button>
+      <button class="btn-load" onclick="dialogLoad()">Load</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const DEFAULT_PLAYLIST = 'https://maldives.s.gy/yunxx';
+const CORS_PROXY = 'https://corsproxy.io/?'; // kept for stream proxying
+
+// ── Proxy Configuration ───────────────────────
+// If you are hosting index.html on a static host (GitHub Pages, Netlify, etc.)
+// you must also deploy server.py somewhere (Render, Railway, Replit, etc.) and
+// set PROXY_BASE to that server's URL — e.g. 'https://my-proxy.onrender.com'
+// Leave empty ('') when index.html is served directly by server.py.
+const PROXY_BASE = '';
+
+function proxyBase() {
+  return (PROXY_BASE || window.location.origin);
+}
+
+let playlist = null;
+let activeChannel = null;
+let activeGroup = null;
+let sidebarOpen = true;
+let usingProxy = false;
+let shakaPlayer = null;
+let hlsPlayer = null;
+let controlsTimer = null;
+let playerState = 'idle';
+let autoProxyPending = false;
+
+// ── Shaka Init ───────────────────────────────
+shaka.polyfill.installAll();
+
+// ── M3U Parser ──────────────────────────────
+function parseM3U(text, fileName) {
+  const rawLines = text.split('\n');
+  const lines = rawLines.map(l => l.trim()).filter(Boolean);
+  if (!lines[0]?.startsWith('#EXTM3U')) throw new Error('Invalid M3U file');
+  const channels = [];
+  let i = 1;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.startsWith('#EXTINF:')) {
+      const ch = parseExtInf(line);
+      i++;
+      // Collect any directive lines between #EXTINF and the URL
+      while (i < lines.length && lines[i].startsWith('#')) {
+        const directive = lines[i];
+        // Parse #KODIPROP lines for DRM / manifest type
+        if (directive.startsWith('#KODIPROP:')) {
+          const kv = directive.slice('#KODIPROP:'.length);
+          const eqIdx = kv.indexOf('=');
+          if (eqIdx > -1) {
+            const key = kv.slice(0, eqIdx).trim();
+            const val = kv.slice(eqIdx + 1).trim();
+            if (key === 'inputstream.adaptive.license_type') ch.drmType = val;
+            if (key === 'inputstream.adaptive.license_key') ch.drmKey = val;
+            if (key === 'inputstream.adaptive.manifest_type') ch.manifestType = val;
+          }
+        }
+        // Parse #EXTVLCOPT for user-agent hints
+        if (directive.startsWith('#EXTVLCOPT:')) {
+          const opt = directive.slice('#EXTVLCOPT:'.length);
+          const eqIdx = opt.indexOf('=');
+          if (eqIdx > -1) {
+            const key = opt.slice(0, eqIdx).trim().toLowerCase();
+            const val = opt.slice(eqIdx + 1).trim();
+            if (key === 'http-user-agent') ch.userAgent = val;
+          }
+        }
+        i++;
+      }
+      if (i < lines.length && !lines[i].startsWith('#')) {
+        ch.url = lines[i]; channels.push(ch); i++;
+      }
+    } else { i++; }
+  }
+  const groups = [...new Set(channels.map(c => c.group || 'Ungrouped'))].sort();
+  return { name: (fileName || 'Playlist').replace(/\.m3u8?$/i, ''), channels, groups };
+}
+
+function parseExtInf(line) {
+  const rest = line.slice('#EXTINF:'.length);
+  const commaIdx = rest.lastIndexOf(',');
+  const before = commaIdx >= 0 ? rest.slice(0, commaIdx) : rest;
+  const after = commaIdx >= 0 ? rest.slice(commaIdx + 1).trim() : '';
+  const ch = {
+    id: Math.random().toString(36).slice(2),
+    name: after || 'Unknown',
+    url: '', logo: '', group: '', tvgId: '', duration: 0,
+    drmType: null, drmKey: null, manifestType: null, userAgent: null
+  };
+  const dur = before.match(/^(-?\d+(?:\.\d+)?)/); if (dur) ch.duration = parseFloat(dur[1]);
+  const logo = before.match(/tvg-logo="([^"]*)"/); if (logo) ch.logo = logo[1];
+  const name = before.match(/tvg-name="([^"]*)"/); if (name && name[1]) ch.name = name[1];
+  const id = before.match(/tvg-id="([^"]*)"/); if (id) ch.tvgId = id[1];
+  const grp = before.match(/group-title="([^"]*)"/); if (grp && grp[1]) ch.group = grp[1];
+  return ch;
+}
+
+// ── Boot / Auto-load ─────────────────────────
+function isM3U(text) {
+  // Accept both plain M3U and extended M3U; also bare URL lists
+  return text && (text.trimStart().startsWith('#EXTM3U') || text.trimStart().startsWith('#EXTINF') || /^https?:\/\//m.test(text));
+}
+
+async function tryFetch(fetchUrl, timeoutMs, extraHeaders) {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const res = await fetch(fetchUrl, { signal: ac.signal, headers: extraHeaders || {} });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    if (!isM3U(text)) throw new Error('not a playlist');
+    return text;
+  } finally { clearTimeout(t); }
+}
+
+async function fetchPlaylist(url) {
+  // Strategy 1a: Netlify serverless function (works when hosted on Netlify)
+  try { return await tryFetch('/.netlify/functions/fetch-playlist?url=' + encodeURIComponent(url), 10000); } catch(e) {}
+
+  // Strategy 1b: Flask/Gunicorn server (works when running with server.py or deployed on Replit)
+  try {
+    const serverUrl = proxyBase() + '/fetch-playlist?url=' + encodeURIComponent(url);
+    return await tryFetch(serverUrl, 6000);
+  } catch(e) {}
+
+  // Strategy 2: Direct browser fetch (works for CORS-open sources like GitHub raw)
+  try { return await tryFetch(url, 15000); } catch(e) {}
+
+  // Strategy 3: corsproxy.io — free, works from real browsers, follows redirects
+  try { return await tryFetch('https://corsproxy.io/?' + encodeURIComponent(url), 20000); } catch(e) {}
+
+  // Strategy 4: allorigins.win — alternative free proxy
+  try { return await tryFetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(url), 20000); } catch(e) {}
+
+  // Strategy 5: workers.dev open CORS proxy
+  try { return await tryFetch('https://corsproxy.org/?' + encodeURIComponent(url), 20000); } catch(e) {}
+
+  // Strategy 6: crossorigin.me
+  try { return await tryFetch('https://crossorigin.me/' + url, 20000); } catch(e) {}
+
+  throw new Error('Failed to load playlist — please check the URL and try again');
+}
+
+async function bootLoad(url) {
+  url = url || DEFAULT_PLAYLIST;
+  const errEl = document.getElementById('splash-error');
+  const retryEl = document.getElementById('splash-retry');
+  const statusEl = document.getElementById('splash-status');
+  const spinnerEl = document.getElementById('splash-spinner');
+  errEl.style.display = 'none';
+  retryEl.style.display = 'none';
+  spinnerEl.style.display = '';
+  statusEl.textContent = 'Loading playlist…';
+
+  try {
+    const text = await fetchPlaylist(url);
+    const pl = parseM3U(text, url === DEFAULT_PLAYLIST ? 'FreeTV' : url.split('/').pop());
+    initApp(pl);
+  } catch(e) {
+    spinnerEl.style.display = 'none';
+    statusEl.textContent = 'Could not load playlist';
+    errEl.textContent = (e.message || 'Network error') + ' — check your connection and try again.';
+    errEl.style.display = 'block';
+    retryEl.style.display = '';
+  }
+}
+
+function initApp(pl) {
+  playlist = pl;
+  activeChannel = null;
+  activeGroup = null;
+  document.getElementById('playlist-name').textContent = pl.name;
+  document.getElementById('channel-count').textContent = pl.channels.length.toLocaleString() + ' channels';
+  document.getElementById('channel-nav').style.display = 'none';
+  renderList();
+  const splash = document.getElementById('splash');
+  splash.classList.add('fade-out');
+  setTimeout(() => { splash.style.display = 'none'; }, 380);
+  document.getElementById('app').style.display = 'grid';
+}
+
+function reloadDefault() {
+  destroyPlayer();
+  playlist = null; activeChannel = null; activeGroup = null;
+  document.getElementById('app').style.display = 'none';
+  const splash = document.getElementById('splash');
+  splash.style.display = 'flex';
+  splash.classList.remove('fade-out');
+  bootLoad(DEFAULT_PLAYLIST);
+}
+
+// ── Custom URL Dialog ────────────────────────
+function openUrlDialog() {
+  document.getElementById('url-dialog').classList.add('open');
+  document.getElementById('url-dialog-input').value = '';
+  document.getElementById('url-dialog-error').style.display = 'none';
+  setTimeout(() => document.getElementById('url-dialog-input').focus(), 50);
+}
+function closeUrlDialog() { document.getElementById('url-dialog').classList.remove('open'); }
+async function dialogLoad() {
+  const url = document.getElementById('url-dialog-input').value.trim();
+  if (!url) return;
+  const errEl = document.getElementById('url-dialog-error');
+  const btn = document.querySelector('.btn-load');
+  errEl.style.display = 'none';
+  if (btn) btn.textContent = 'Loading…';
+  try {
+    const text = await fetchPlaylist(url);
+    const pl = parseM3U(text, url.split('/').pop());
+    closeUrlDialog();
+    initApp(pl);
+  } catch(e) {
+    errEl.textContent = e.message || 'Failed to load playlist';
+    errEl.style.display = 'block';
+  } finally {
+    if (btn) btn.textContent = 'Load';
+  }
+}
+
+// ── Sidebar / List ────────────────────────────
+function toggleSidebar() {
+  sidebarOpen = !sidebarOpen;
+  document.getElementById('app').classList.toggle('sidebar-closed', !sidebarOpen);
+  document.getElementById('toggle-icon-left').style.display = sidebarOpen ? '' : 'none';
+  document.getElementById('toggle-icon-right').style.display = sidebarOpen ? 'none' : '';
+}
+
+function renderList() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const container = document.getElementById('channel-items');
+  container.innerHTML = '';
+  if (q) {
+    const results = playlist.channels.filter(c => c.name.toLowerCase().includes(q) || (c.group||'').toLowerCase().includes(q));
+    if (!results.length) { container.innerHTML = '<div class="empty-msg">No results found</div>'; return; }
+    results.forEach(ch => container.appendChild(channelRow(ch, true)));
+    return;
+  }
+  if (activeGroup !== null) {
+    const back = document.createElement('button');
+    back.className = 'back-btn';
+    back.innerHTML = '<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg><span class="back-label">' + esc(activeGroup) + '</span><span class="folder-count">' + playlist.channels.filter(c=>(c.group||'Ungrouped')===activeGroup).length + '</span>';
+    back.onclick = () => { activeGroup = null; renderList(); };
+    container.appendChild(back);
+    const chans = playlist.channels.filter(c => (c.group||'Ungrouped') === activeGroup);
+    if (!chans.length) { container.innerHTML += '<div class="empty-msg">No channels</div>'; return; }
+    chans.forEach(ch => container.appendChild(channelRow(ch, false)));
+    return;
+  }
+  const grouped = {};
+  playlist.channels.forEach(c => { const g = c.group||'Ungrouped'; if (!grouped[g]) grouped[g]=[]; grouped[g].push(c); });
+  playlist.groups.forEach(g => {
+    const chans = grouped[g]||[];
+    if (!chans.length) return;
+    const hasActive = chans.some(c => activeChannel && c.id === activeChannel.id);
+    const btn = document.createElement('button');
+    btn.className = 'folder-item' + (hasActive ? ' has-active' : '');
+    btn.innerHTML = '<svg class="folder-icon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><span class="folder-name">' + esc(g) + '</span><span class="folder-count">' + chans.length + '</span>';
+    btn.onclick = () => { activeGroup = g; renderList(); };
+    container.appendChild(btn);
+  });
+}
+
+function channelRow(ch, showGroup) {
+  const isActive = activeChannel && ch.id === activeChannel.id;
+  const btn = document.createElement('button');
+  btn.className = 'channel-item' + (isActive ? ' active' : '');
+  btn.dataset.id = ch.id;
+  const logoHtml = ch.logo ? '<img src="' + esc(ch.logo) + '" alt="" onerror="this.style.display=\'none\'" />' : '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>';
+  const groupHtml = showGroup && ch.group ? '<span class="channel-group-small">' + esc(ch.group) + '</span>' : '';
+  const dot = isActive ? '<span class="playing-dot"></span>' : '';
+  btn.innerHTML = '<div class="channel-logo">' + logoHtml + '</div><div class="channel-meta"><span class="channel-name">' + esc(ch.name) + '</span>' + groupHtml + '</div>' + dot;
+  btn.onclick = () => selectChannel(ch);
+  return btn;
+}
+
+function esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Channel Selection ─────────────────────────
+function selectChannel(ch) {
+  activeChannel = ch;
+  usingProxy = false;
+  autoProxyPending = false;
+  renderList();
+  updateNav();
+  startStream(ch.url);
+}
+
+function navigate(dir) {
+  if (!playlist || !activeChannel) return;
+  const idx = playlist.channels.findIndex(c => c.id === activeChannel.id);
+  const next = playlist.channels[idx + dir];
+  if (next) selectChannel(next);
+}
+
+function updateNav() {
+  if (!activeChannel) { document.getElementById('channel-nav').style.display = 'none'; return; }
+  document.getElementById('channel-nav').style.display = 'flex';
+  document.getElementById('nav-name').textContent = activeChannel.name;
+  const grpEl = document.getElementById('nav-group');
+  if (activeChannel.group) { grpEl.textContent = activeChannel.group; grpEl.style.display = ''; }
+  else { grpEl.style.display = 'none'; }
+  const idx = playlist.channels.findIndex(c => c.id === activeChannel.id);
+  document.getElementById('prev-btn').disabled = idx === 0;
+  document.getElementById('next-btn').disabled = idx === playlist.channels.length - 1;
+}
+
+// ── Helpers ───────────────────────────────────
+// Two proxy formats, each suited to its player:
+//
+// proxyUrlHls  — ?url= query format — for HLS.js (m3u8)
+//   Server rewrites ALL segment URLs in the manifest server-side, so HLS.js
+//   only ever fetches absolute /proxy?url=... URLs. No client-side relative
+//   URL resolution needed, so the query-param format works perfectly.
+//
+// proxyUrlDash — /proxy/<url> path format — for Shaka (MPD/DASH)
+//   Shaka resolves relative segment URLs against the base URL it fetched the
+//   manifest from. With path-based format the math works out correctly:
+//     base  = https://our-server/proxy/https://cdn.example.com/dash/stream.mpd
+//     rel   = video/1.m4s
+//     resolved → https://our-server/proxy/https://cdn.example.com/dash/video/1.m4s ✓
+//   With ?url= format, the path is just "/proxy" and resolution breaks.
+function proxyUrlHls(url, ua) {
+  let u = proxyBase() + '/proxy?url=' + encodeURIComponent(url);
+  if (ua) u += '&ua=' + encodeURIComponent(ua);
+  return u;
+}
+function proxyUrl(url) {          // path-based — used by Shaka + request filter
+  // Normalize protocol-relative (//cdn.com/...) to https:
+  let normalized = url;
+  if (normalized.startsWith('//')) normalized = 'https:' + normalized;
+  // Intentionally collapse https:// → https:/ in the path to avoid reverse-proxy
+  // normalization that can mangle double-slashes (e.g. Replit's nginx).
+  // The server restores :// before fetching the upstream URL.
+  // Relative URL resolution still works because Shaka sees the single-slash form
+  // as the base and resolves sub-paths correctly.
+  return proxyBase() + '/proxy/' + normalized.replace(/^(https?):\/\//, '$1:/');
+}
+
+// Parse IPTV DRM key field: "https://license.url|Header:value|Header2:value2"
+function parseLicenseKey(key) {
+  const parts = (key || '').split('|');
+  const url = parts[0].trim();
+  const headers = {};
+  for (let i = 1; i < parts.length; i++) {
+    const colonIdx = parts[i].indexOf(':');
+    if (colonIdx > 0) {
+      headers[parts[i].slice(0, colonIdx).trim()] = parts[i].slice(colonIdx + 1).trim();
+    }
+  }
+  return { url, headers };
+}
+
+function licenseProxyUrl(licenseUrl, extraHeaders) {
+  let u = proxyBase() + '/license-proxy?url=' + encodeURIComponent(licenseUrl);
+  if (extraHeaders && Object.keys(extraHeaders).length > 0) {
+    u += '&hdrs=' + encodeURIComponent(JSON.stringify(extraHeaders));
+  }
+  return u;
+}
+
+function getStreamType(url, ch) {
+  if (ch && ch.manifestType) {
+    if (ch.manifestType === 'mpd') return 'mpd';
+    if (ch.manifestType === 'hls') return 'hls';
+  }
+  const u = url.toLowerCase().split('?')[0];
+  if (u.endsWith('.mpd')) return 'mpd';
+  if (u.endsWith('.ts')) return 'ts';
+  if (url.includes('_st=ts')) return 'ts';   // set by resolveRedirectUrl
+  if (url.includes('_st=mpd')) return 'mpd'; // set by resolveRedirectUrl
+  return 'hls'; // default: treat everything as HLS/m3u8
+}
+
+// Resolve short/redirect URLs (e.g. https://l.hilay.tv/events3).
+// Fetches through the CORS proxy to detect stream type and follow redirects.
+// corsproxy.io follows redirects server-side and exposes the final URL via
+// the `x-final-url` response header — we use that as the resolved URL so the
+// HLS/DASH proxy can correctly resolve relative segment paths.
+async function resolveRedirectUrl(url) {
+  const u = url.toLowerCase().split('?')[0];
+  // Already has a recognisable extension — nothing to do
+  if (u.endsWith('.m3u8') || u.endsWith('.m3u') || u.endsWith('.mpd') || u.endsWith('.ts')) {
+    return url;
+  }
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(CORS_PROXY + encodeURIComponent(url), {
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+
+    // corsproxy.io exposes the final URL after following server-side redirects
+    const finalUrl = res.headers.get('x-final-url') || url;
+
+    // Raw MPEG-TS
+    if (ct.includes('mp2t') || ct.includes('mpeg2') ||
+        (ct.includes('octet-stream') && !ct.includes('xml'))) {
+      return finalUrl + (finalUrl.includes('?') ? '&_st=ts' : '?_st=ts');
+    }
+
+    // DASH manifest
+    if (ct.includes('dash+xml') || finalUrl.toLowerCase().endsWith('.mpd')) {
+      return finalUrl + (finalUrl.includes('?') ? '&_st=mpd' : '?_st=mpd');
+    }
+
+    // HLS — read a small slice of the body to confirm and pick up final URL
+    if (ct.includes('mpegurl') || ct.includes('x-mpegurl')) {
+      return finalUrl;
+    }
+
+    // No recognised content-type — peek at body
+    try {
+      const text = await res.clone().text();
+      if (text.trimStart().startsWith('#EXTM3U')) {
+        // It's an HLS playlist; use the final URL so relative segments resolve
+        return finalUrl;
+      }
+      if (text.trimStart().startsWith('<?xml') || text.includes('<MPD')) {
+        return finalUrl + (finalUrl.includes('?') ? '&_st=mpd' : '?_st=mpd');
+      }
+    } catch(e) { /* body read failed — fall through */ }
+
+  } catch(e) { /* network error or abort — fall through */ }
+  return url;
+}
+
+// ── Destroy Players ───────────────────────────
+async function destroyPlayer() {
+  clearLoadTimeout();
+  stopStallWatchdog();
+  stopBwMonitor();
+  if (hlsPlayer) {
+    try { hlsPlayer.destroy(); } catch(e) {}
+    hlsPlayer = null;
+  }
+  if (shakaPlayer) {
+    try { await shakaPlayer.destroy(); } catch(e) {}
+    shakaPlayer = null;
+  }
+  const video = document.getElementById('player-video');
+  video.removeAttribute('src');
+  video.load();
+  hideQualityMenu();
+  document.getElementById('quality-wrap').style.display = 'none';
+  document.getElementById('quality-label').textContent = 'Auto';
+  hidePiP();
+}
+
+// ── Quality Menu ──────────────────────────────
+function buildQualityMenu(items, onAuto, onSelect) {
+  const wrap = document.getElementById('quality-wrap');
+  const menu = document.getElementById('quality-menu');
+  if (!items || items.length <= 1) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'flex';
+  menu.innerHTML = '<div class="quality-menu-header">Quality</div>';
+  const autoEl = document.createElement('div');
+  autoEl.className = 'quality-option active';
+  autoEl.id = 'quality-opt-auto';
+  autoEl.innerHTML = '<span>Auto</span><svg class="q-check" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>';
+  autoEl.onclick = () => {
+    menu.querySelectorAll('.quality-option').forEach(e => e.classList.remove('active'));
+    autoEl.classList.add('active');
+    document.getElementById('quality-label').textContent = 'Auto';
+    onAuto(); hideQualityMenu();
+  };
+  menu.appendChild(autoEl);
+  menu.appendChild(Object.assign(document.createElement('div'), { className: 'quality-divider' }));
+  items.forEach(item => {
+    const el = document.createElement('div');
+    el.className = 'quality-option';
+    el.innerHTML = `<span>${item.label}</span><svg class="q-check" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`;
+    el.onclick = () => {
+      menu.querySelectorAll('.quality-option').forEach(e => e.classList.remove('active'));
+      el.classList.add('active');
+      document.getElementById('quality-label').textContent = item.label;
+      onSelect(item); hideQualityMenu();
+    };
+    menu.appendChild(el);
+  });
+}
+
+function updateQualityMenuHLS() {
+  if (!hlsPlayer) return;
+  const levels = hlsPlayer.levels || [];
+  const items = [...levels].map((l, i) => ({
+    label: l.height ? `${l.height}p` : `${Math.round((l.bitrate || 0) / 1000)}k`,
+    index: i
+  })).sort((a, b) => (parseInt(b.label) || 0) - (parseInt(a.label) || 0));
+  buildQualityMenu(
+    items,
+    () => { if (hlsPlayer) hlsPlayer.currentLevel = -1; },
+    (item) => { if (hlsPlayer) hlsPlayer.currentLevel = item.index; }
+  );
+}
+
+function updateQualityMenu() {
+  if (!shakaPlayer) return;
+  const tracks = shakaPlayer.getVariantTracks();
+  if (!tracks || tracks.length === 0) { document.getElementById('quality-wrap').style.display = 'none'; return; }
+  const byHeight = {};
+  tracks.forEach(t => {
+    const h = t.height || 0;
+    if (!byHeight[h] || t.bandwidth > byHeight[h].bandwidth) byHeight[h] = t;
+  });
+  const unique = Object.values(byHeight).sort((a, b) => (b.height || 0) - (a.height || 0));
+  const items = unique.map(t => ({
+    label: t.height ? `${t.height}p` : `${Math.round(t.bandwidth / 1000)}k`,
+    track: t
+  }));
+  buildQualityMenu(
+    items,
+    () => { if (shakaPlayer) shakaPlayer.configure('abr.enabled', true); },
+    (item) => { if (shakaPlayer) { shakaPlayer.configure('abr.enabled', false); shakaPlayer.selectVariantTrack(item.track, true); } }
+  );
+}
+
+function selectQuality() {} // kept for compat — logic is now in buildQualityMenu
+
+function toggleQualityMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('quality-menu');
+  if (menu.classList.contains('hidden')) {
+    menu.classList.remove('hidden');
+    setTimeout(() => document.addEventListener('click', closeQualityOnOutside, {once: true}), 0);
+  } else {
+    hideQualityMenu();
+  }
+}
+
+function hideQualityMenu() {
+  const menu = document.getElementById('quality-menu');
+  if (menu) menu.classList.add('hidden');
+}
+
+function closeQualityOnOutside(e) {
+  const wrap = document.getElementById('quality-wrap');
+  if (wrap && !wrap.contains(e.target)) hideQualityMenu();
+}
+
+// ── Picture in Picture ────────────────────────
+function initPiP() {
+  const video = document.getElementById('player-video');
+  const btn = document.getElementById('pip-btn');
+  if (!document.pictureInPictureEnabled) return;
+  btn.style.display = 'flex';
+  video.addEventListener('enterpictureinpicture', () => {
+    document.getElementById('icon-pip').style.display = 'none';
+    document.getElementById('icon-pip-exit').style.display = '';
+    btn.title = 'Exit Picture in Picture';
+  });
+  video.addEventListener('leavepictureinpicture', () => {
+    document.getElementById('icon-pip').style.display = '';
+    document.getElementById('icon-pip-exit').style.display = 'none';
+    btn.title = 'Picture in Picture';
+  });
+}
+
+async function togglePiP() {
+  const video = document.getElementById('player-video');
+  if (!document.pictureInPictureEnabled) return;
+  try {
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture();
+    } else {
+      await video.requestPictureInPicture();
+    }
+  } catch(e) {}
+}
+
+function hidePiP() {
+  document.getElementById('pip-btn').style.display = 'none';
+  if (document.pictureInPictureElement) document.exitPictureInPicture().catch(()=>{});
+}
+
+// ── Stalker Portal Resolution ─────────────────
+function isStalkerUrl(s) {
+  return s.includes('/play/live.php') && s.includes('mac=') && s.includes('stream=');
+}
+
+async function resolveStalkerUrl(stalkerUrl) {
+  try {
+    const r = await fetch('/stalker-resolve?url=' + encodeURIComponent(stalkerUrl),
+      { signal: AbortSignal.timeout(20000) });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (data.url) { console.log('[Stalker] resolved to:', data.url); return data.url; }
+    console.warn('[Stalker] error:', data.error);
+  } catch(e) { console.warn('[Stalker] fetch failed:', e.message); }
+  return null;
+}
+
+// After resolving a Stalker URL, the portal returns a URL like:
+// http://host/play/live.php?...&extension=ts&play_token=XYZ
+// We add a _st=ts hint so getStreamType() picks the right player,
+// and strip the stalker-style path so the proxy handles it cleanly.
+function addStreamTypeHint(resolvedUrl) {
+  try {
+    const u = new URL(resolvedUrl);
+    const ext = u.searchParams.get('extension');
+    if (ext === 'ts') return resolvedUrl + '&_st=ts';
+    if (ext === 'mpd') return resolvedUrl + '&_st=mpd';
+  } catch(e) {}
+  return resolvedUrl;
+}
+
+async function preprocessUrl(url) {
+  // Direct Stalker URL in playlist
+  if (isStalkerUrl(url)) {
+    const resolved = await resolveStalkerUrl(url);
+    if (resolved) return addStreamTypeHint(resolved);
+    return url;
+  }
+
+  // Might be an m3u8 that wraps a Stalker URL (e.g. GitHub-hosted redirector)
+  const rawPath = url.toLowerCase().split('?')[0];
+  if (rawPath.endsWith('.m3u8') || rawPath.endsWith('.m3u')) {
+    try {
+      let content = null;
+      try {
+        const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (r.ok) content = await r.text();
+      } catch(e) {}
+      if (!content) {
+        try {
+          const r = await fetch(CORS_PROXY + encodeURIComponent(url), { signal: AbortSignal.timeout(8000) });
+          if (r.ok) content = await r.text();
+        } catch(e) {}
+      }
+      if (content) {
+        for (const line of content.split('\n')) {
+          const trimmed = line.trim();
+          if (isStalkerUrl(trimmed)) {
+            console.log('[Stalker] found in m3u8, resolving:', trimmed);
+            const resolved = await resolveStalkerUrl(trimmed);
+            if (resolved) return addStreamTypeHint(resolved);
+          }
+        }
+      }
+    } catch(e) { console.warn('[Stalker] m3u8 pre-check failed:', e.message); }
+  }
+
+  return url;
+}
+
+async function startStream(url) {
+  const video = document.getElementById('player-video');
+  await destroyPlayer();
+  document.getElementById('error-title').textContent = 'Stream unavailable';
+  document.getElementById('error-msg').textContent = 'The stream could not be loaded. It may be offline, blocked, or geo-restricted.';
+  setPlayerState('loading');
+
+  const ch = activeChannel;
+  startLoadTimeout(ch);
+
+  // Resolve Stalker Portal URLs before handing to the player
+  url = await preprocessUrl(url);
+
+  // Detect stream type from URL extension / KODIPROP manifest hint
+  const type = getStreamType(url, ch);
+  // "Known" HLS = explicit .m3u8 or .m3u extension (or ch.manifestType === 'hls')
+  const rawPath = url.toLowerCase().split('?')[0];
+  const isExplicitHLS = rawPath.endsWith('.m3u8') || rawPath.endsWith('.m3u') ||
+                        (ch && ch.manifestType === 'hls');
+
+  const ua = ch && ch.userAgent ? ch.userAgent : null;
+
+  if (type === 'mpd') {
+    // DASH stream — try direct first (user's own IP handles geo-restricted streams
+    // like US-only FS1). On failure → path proxy (works for most CDNs). On second
+    // failure → corsproxy.io as last resort.
+    await _startShakaAuto(video, url, ch, false);
+  } else if (type === 'ts') {
+    // Raw MPEG-TS — route directly through external proxy (follows redirect)
+    const src = proxyUrlHls(url, ua);
+    video.src = src;
+    video.play().catch(() => {});
+    initPiP();
+    video.addEventListener('playing', () => setPlayerState('playing'), { once: true });
+    video.addEventListener('error', () => setPlayerState('error'), { once: true });
+  } else if (isExplicitHLS) {
+    // Try direct first — many streams (e.g. SSTV, Channel 13) have CORS: * and
+    // load fine without any proxy. The _startHLS error handler chains:
+    //   direct → server proxy → corsproxy.io
+    await _startHLS(video, url, ch, url);
+  } else {
+    // Unknown or redirect URL — try direct first, fall back to corsproxy.io.
+    await _startShakaAuto(video, url, ch, false);
+  }
+}
+
+// Shaka with corsproxy.io auto-retry — used for unknown/redirect URLs.
+// On first failure (direct load), automatically retries via corsproxy.io.
+async function _startShakaAuto(video, url, ch, viaProxy) {
+  const loadUrl = viaProxy ? (CORS_PROXY + encodeURIComponent(url)) : url;
+  // When doing the initial direct attempt (viaProxy=false), fail fast so we
+  // quickly fall back to the proxy for channels that need it (e.g. geo-restricted
+  // or CORS-blocked streams). Channels that work directly succeed on the first
+  // try anyway, so no retries are needed there.
+  // When already using the proxy, keep generous retries for reliability.
+  const retryParams = viaProxy
+    ? { maxAttempts: 3, baseDelay: 1000, backoffFactor: 2 }
+    : { maxAttempts: 1, baseDelay: 50,   backoffFactor: 1 };
+  const config = {
+    streaming: { lowLatencyMode: false, bufferingGoal: 30, rebufferingGoal: 2,
+      retryParameters: retryParams },
+    manifest: { retryParameters: viaProxy
+      ? { maxAttempts: 3, baseDelay: 1000 }
+      : { maxAttempts: 1, baseDelay: 50  } }
+  };
+
+  // ClearKey DRM handled entirely in-browser by Shaka (no license server request)
+  const isClearKey = ch && ch.drmType === 'clearkey' && ch.drmKey;
+  if (isClearKey) {
+    const parts = ch.drmKey.split(':');
+    if (parts.length === 2) {
+      config.drm = { clearKeys: { [parts[0].trim()]: parts[1].trim() } };
+    }
+  }
+
+  const retryWithProxy = async () => {
+    if (!activeChannel || ch.id !== activeChannel.id) return;
+    if (viaProxy) { setShakaError(null); return; }
+    await destroyPlayer();
+    if (!activeChannel || ch.id !== activeChannel.id) return;
+    document.getElementById('proxy-badge').style.display = '';
+    document.getElementById('proxy-btn').style.display = 'none';
+    document.getElementById('proxy-note').style.display = '';
+    // Use path-based proxy next (works for most CDNs including aiv-cdn.net/gru-nitro).
+    // _startShaka itself falls back to corsproxy.io if the path proxy also fails.
+    await _startShaka(video, proxyUrl(url), ch);
+  };
+
+  try {
+    const player = new shaka.Player();
+    await player.attach(video);
+    shakaPlayer = player;
+    player.configure(config);
+    player.getNetworkingEngine().registerResponseFilter(bwResponseFilter);
+
+    // When loading via CORS proxy, also route all segment and manifest requests
+    // through corsproxy.io so CDN CORS restrictions don't block segment loading.
+    // This fixes DASH+ClearKey streams (e.g. aiv-cdn.net) on externally-hosted sites
+    // where the CDN only allows *.replit.app origins.
+    if (viaProxy) {
+      player.getNetworkingEngine().registerRequestFilter((type, request) => {
+        const u = request.uris[0];
+        if (!u) return;
+        // Already routed through the proxy — don't double-wrap
+        if (u.startsWith(CORS_PROXY)) return;
+        // ClearKey: Shaka decrypts in-browser; never proxy the synthetic license call
+        if (type === shaka.net.NetworkingEngine.RequestType.LICENSE && isClearKey) return;
+        // Proxy all http(s) and protocol-relative URLs
+        if (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('//')) {
+          const normalized = u.startsWith('//') ? 'https:' + u : u;
+          request.uris[0] = CORS_PROXY + encodeURIComponent(normalized);
+        }
+      });
+    }
+
+    player.addEventListener('error', async (event) => {
+      if (!activeChannel || ch.id !== activeChannel.id) return;
+      if (!viaProxy) {
+        await retryWithProxy();
+      } else {
+        setShakaError(event.detail);
+      }
+    });
+
+    await player.load(loadUrl);
+    video.play().catch(() => {});
+    updateQualityMenu();
+    initPiP();
+  } catch(e) {
+    if (!activeChannel || ch.id !== activeChannel.id) return;
+    if (!viaProxy) {
+      await retryWithProxy();
+    } else {
+      setShakaError(e);
+    }
+  }
+}
+
+// _startHLS: loadUrl is the proxied URL; rawUrl is the original stream URL for fallback
+async function _startHLS(video, loadUrl, ch, rawUrl, viaCorsProxy) {
+  if (!Hls.isSupported()) {
+    // Safari: try native HLS
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = loadUrl;
+      video.play().catch(() => {});
+      initPiP();
+    } else {
+      setPlayerState('error');
+    }
+    return;
+  }
+
+  const hls = new Hls({
+    enableWorker: true,
+    lowLatencyMode: false,
+    backBufferLength: 30,
+    maxBufferLength: 30,
+    maxMaxBufferLength: 90,
+    manifestLoadingTimeOut: 20000,
+    manifestLoadingMaxRetry: 2,
+    levelLoadingTimeOut: 20000,
+    fragLoadingTimeOut: 30000,
+    fragLoadingMaxRetry: 4,
+    startLevel: -1,
+  });
+
+  hlsPlayer = hls;
+  hls.loadSource(loadUrl);
+  hls.attachMedia(video);
+
+  hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    video.play().catch(() => {});
+    updateQualityMenuHLS();
+    initPiP();
+  });
+
+  hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+    // stats.loaded = actual bytes transferred (works even without Content-Length)
+    // stats.total  = 0 when server omits Content-Length header
+    const bytes = (data.stats && (data.stats.loaded || data.stats.total)) || 0;
+    if (bytes > 0) bwWindowBytes.push({ bytes, ts: Date.now() });
+  });
+
+  hls.on(Hls.Events.ERROR, (event, data) => {
+    console.error('[HLS] error type=' + data.type + ' details=' + data.details + ' fatal=' + data.fatal + ' url=' + (data.url || (data.frag && data.frag.url) || ''));
+    if (!activeChannel || ch.id !== activeChannel.id) return;
+    if (data.fatal) {
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR && loadUrl === rawUrl && rawUrl) {
+        // Step 1 (direct) failed → try server proxy
+        hls.destroy(); hlsPlayer = null;
+        const chUa = ch && ch.userAgent ? ch.userAgent : null;
+        _startHLS(video, proxyUrlHls(rawUrl, chUa), ch, rawUrl, false);
+      } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR && !viaCorsProxy && rawUrl) {
+        // Step 2 (server proxy) failed → fall back to corsproxy.io
+        hls.destroy(); hlsPlayer = null;
+        document.getElementById('proxy-badge').style.display = '';
+        document.getElementById('proxy-btn').style.display = 'none';
+        document.getElementById('proxy-note').style.display = '';
+        _startHLS(video, CORS_PROXY + encodeURIComponent(rawUrl), ch, rawUrl, true);
+      } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        hls.startLoad();
+      } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        hls.recoverMediaError();
+      } else {
+        setPlayerState('error');
+      }
+    }
+  });
+}
+
+async function _startShaka(video, loadUrl, ch) {
+  const config = {
+    streaming: {
+      lowLatencyMode: false,
+      bufferingGoal: 30,
+      rebufferingGoal: 2,
+      retryParameters: { maxAttempts: 4, baseDelay: 1000, backoffFactor: 2 },
+    },
+    manifest: {
+      retryParameters: { maxAttempts: 3, baseDelay: 1000 }
+    }
+  };
+
+  let licenseHeaders = {};
+
+  const isClearKey = ch && ch.drmType === 'clearkey' && ch.drmKey;
+
+  if (isClearKey) {
+    // ClearKey: keyId:keyValue (both 32-char hex = 16-byte AES-128).
+    // Shaka handles this entirely in-browser — no license server call is made.
+    // We must NOT route ClearKey license requests through the external proxy or
+    // Shaka will try to POST to it instead of decrypting locally.
+    const parts = ch.drmKey.split(':');
+    if (parts.length === 2) {
+      config.drm = { clearKeys: { [parts[0].trim()]: parts[1].trim() } };
+    }
+  } else if (ch && ch.drmKey) {
+    const drmType = (ch.drmType || '').toLowerCase();
+    const parsed = parseLicenseKey(ch.drmKey);
+    licenseHeaders = parsed.headers;
+
+    if (drmType === 'widevine' || drmType === 'com.widevine.alpha') {
+      config.drm = {
+        servers: { 'com.widevine.alpha': licenseProxyUrl(parsed.url, parsed.headers) }
+      };
+    } else if (drmType === 'playready' || drmType === 'com.microsoft.playready') {
+      config.drm = {
+        servers: { 'com.microsoft.playready': licenseProxyUrl(parsed.url, parsed.headers) }
+      };
+    }
+  }
+
+  try {
+    const player = new shaka.Player();
+    await player.attach(video);
+    shakaPlayer = player;
+    player.configure(config);
+
+    // Route requests through proxy:
+    // - LICENSE requests → /license-proxy (POST, handles CORS with license servers)
+    // - http/https/protocol-relative → /proxy/<url> (path-based, preserves relative URL resolution)
+    // - data:, blob:, urn: and other non-http schemes → pass through, Shaka handles natively
+    player.getNetworkingEngine().registerRequestFilter((type, request) => {
+      const u = request.uris[0];
+      if (!u) return;
+
+      // Already routed through our server — no re-proxy needed
+      if (u.startsWith(proxyBase())) return;
+
+      // Only intercept http/https/protocol-relative URLs; let Shaka handle everything else
+      const isProxiable = u.startsWith('http://') || u.startsWith('https://') || u.startsWith('//');
+      if (!isProxiable) return;
+
+      if (type === shaka.net.NetworkingEngine.RequestType.LICENSE) {
+        // ClearKey is handled entirely in-browser by Shaka — never route it
+        // through an external license proxy or decryption breaks.
+        if (!isClearKey) {
+          request.uris[0] = licenseProxyUrl(u, licenseHeaders);
+        }
+      } else {
+        request.uris[0] = proxyUrl(u);
+      }
+    });
+
+    player.getNetworkingEngine().registerResponseFilter(bwResponseFilter);
+
+    const fallbackToCorsProxy = async () => {
+      if (!activeChannel || ch.id !== activeChannel.id) return;
+      // Path-based proxy failed — try corsproxy.io as a last resort
+      // Derive the original URL from the proxied loadUrl
+      const originalUrl = loadUrl.replace(
+        new RegExp('^' + proxyBase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '/proxy/'),
+        ''
+      ).replace(/^(https?):\/([^/])/, '$1://$2');
+      await destroyPlayer();
+      if (!activeChannel || ch.id !== activeChannel.id) return;
+      await _startShakaAuto(video, originalUrl, ch, true);
+    };
+
+    player.addEventListener('error', async (event) => {
+      const err = event.detail;
+      console.error('[Shaka] error code:', err && err.code, 'data:', err && JSON.stringify(err.data));
+      if (!activeChannel || ch.id !== activeChannel.id) return;
+      await fallbackToCorsProxy();
+    });
+
+    await player.load(loadUrl);
+    video.play().catch(() => {});
+    updateQualityMenu();
+    initPiP();
+  } catch(e) {
+    console.error('[Shaka] load failed code:', e && e.code, 'data:', e && JSON.stringify(e.data));
+    if (!activeChannel || ch.id !== activeChannel.id) return;
+    // Path-based proxy threw on load — fall back to corsproxy.io
+    const originalUrl = loadUrl.replace(
+      new RegExp('^' + proxyBase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '/proxy/'),
+      ''
+    ).replace(/^(https?):\/([^/])/, '$1://$2');
+    await _startShakaAuto(video, originalUrl, ch, true);
+  }
+}
+
+function setShakaError(err) {
+  const code = err && err.code;
+  const category = code ? Math.floor(code / 1000) : 0;
+  let title = 'Stream unavailable';
+  let msg = 'The stream could not be loaded. It may be offline, blocked, or geo-restricted.';
+  if (category === 6 || code === 6012 || code === 6001 || code === 6007) {
+    title = 'DRM Protected';
+    msg = 'This stream is encrypted (DRM) and requires a paid subscription or license key to play. It cannot be decrypted without the correct credentials.';
+  } else if (category === 1) {
+    title = 'Network error';
+    msg = 'Could not reach the stream. It may be offline, geo-restricted, or blocked by the CDN.';
+  } else if (category === 4) {
+    title = 'Manifest error';
+    msg = 'The stream manifest could not be parsed. The stream may be in an unsupported format.';
+  }
+  document.getElementById('error-title').textContent = title;
+  document.getElementById('error-msg').textContent = msg;
+  setPlayerState('error');
+}
+
+function retryStream() {
+  if (!activeChannel) return;
+  document.getElementById('proxy-badge').style.display = 'none';
+  document.getElementById('proxy-btn').style.display = '';
+  document.getElementById('proxy-note').style.display = 'none';
+  startStream(activeChannel.url);
+}
+
+function retryWithProxy() {
+  if (!activeChannel) return;
+  startStream(activeChannel.url);
+}
+
+// ── Player State ──────────────────────────────
+function setPlayerState(s) {
+  playerState = s;
+  document.getElementById('player-idle').style.display = s === 'idle' ? '' : 'none';
+  document.getElementById('player-loading').style.display = s === 'loading' ? 'flex' : 'none';
+  document.getElementById('player-error').style.display = s === 'error' ? 'flex' : 'none';
+  document.getElementById('icon-play').style.display = s === 'playing' ? 'none' : '';
+  document.getElementById('icon-pause').style.display = s === 'playing' ? '' : 'none';
+  const isLive = !activeChannel?.duration || activeChannel.duration <= 0;
+  document.getElementById('player-progress').style.display = (!isLive && s !== 'idle') ? '' : 'none';
+  document.getElementById('live-badge').style.display = (isLive && s !== 'idle') ? '' : 'none';
+  document.getElementById('now-playing-name').textContent = activeChannel?.name || '';
+  const ctrl = document.getElementById('player-controls');
+  clearTimeout(controlsTimer);
+  if (s === 'idle' || s === 'error') {
+    ctrl.classList.remove('visible');
+    stopBwMonitor();
+  } else if (s === 'playing') {
+    ctrl.classList.add('visible');
+    controlsTimer = setTimeout(() => ctrl.classList.remove('visible'), 2500);
+  } else {
+    ctrl.classList.add('visible');
+  }
+}
+
+function showControls() {
+  const ctrl = document.getElementById('player-controls');
+  ctrl.classList.add('visible');
+  clearTimeout(controlsTimer);
+  if (playerState === 'playing') {
+    controlsTimer = setTimeout(() => ctrl.classList.remove('visible'), 2500);
+  }
+}
+
+// ── Bandwidth Display (actual bytes counted) ──
+let bwInterval = null;
+let bwBytesAccum = 0;
+let bwLastBytes = 0;
+let bwWindowBytes = [];  // [{bytes, ts}] sliding 3-second window
+
+function bwResponseFilter(type, response) {
+  const bytes = response.data ? response.data.byteLength : 0;
+  if (bytes > 0) {
+    bwWindowBytes.push({ bytes, ts: Date.now() });
+  }
+}
+
+function startBwMonitor() {
+  document.getElementById('bw-display').style.display = '';
+  bwWindowBytes = [];
+  clearInterval(bwInterval);
+  bwInterval = setInterval(() => {
+    const txt = document.getElementById('bw-text');
+
+    // HLS.js: use its own internal bandwidth estimator (always reliable)
+    if (hlsPlayer) {
+      const bps = hlsPlayer.bandwidthEstimate || 0;
+      if (bps <= 0) { txt.textContent = '-- kbps'; return; }
+      txt.textContent = bps >= 1_000_000
+        ? (bps / 1_000_000).toFixed(2) + ' Mbps'
+        : Math.round(bps / 1000) + ' kbps';
+      return;
+    }
+
+    // Shaka (DASH): use sliding 3-second byte window from response filter
+    const now = Date.now();
+    const windowMs = 3000;
+    bwWindowBytes = bwWindowBytes.filter(e => now - e.ts <= windowMs);
+    const totalBytes = bwWindowBytes.reduce((s, e) => s + e.bytes, 0);
+    const bps = (totalBytes * 8) / (windowMs / 1000);
+    if (bps <= 0) { txt.textContent = '-- kbps'; return; }
+    txt.textContent = bps >= 1_000_000
+      ? (bps / 1_000_000).toFixed(2) + ' Mbps'
+      : Math.round(bps / 1000) + ' kbps';
+  }, 1000);
+}
+
+function stopBwMonitor() {
+  clearInterval(bwInterval);
+  bwInterval = null;
+  bwWindowBytes = [];
+  document.getElementById('bw-display').style.display = 'none';
+  document.getElementById('bw-text').textContent = '-- kbps';
+}
+
+// ── Stall Watchdog ────────────────────────────
+// Detects when currentTime stops advancing while state is 'playing' or 'loading'
+// and auto-recovers or restarts the stream.
+let stallTimer = null;
+let stallLastTime = -1;
+let stallLastCheck = 0;
+let stallRecoveryCount = 0;
+const STALL_CHECK_MS = 5000;   // check every 5 s
+const STALL_GRACE_MS = 8000;   // allow 8 s of non-advancing time before acting
+const STALL_MAX_RETRIES = 3;   // full restarts before giving up
+
+// ── Load Timeout ──────────────────────────────
+// If a channel stays in "loading/connecting" state for too long without ever
+// reaching 'playing', automatically restart it once then give up.
+let loadTimeoutTimer = null;
+
+function startLoadTimeout(ch) {
+  clearTimeout(loadTimeoutTimer);
+  loadTimeoutTimer = setTimeout(async () => {
+    if (!activeChannel || ch.id !== activeChannel.id) return;
+    if (playerState === 'playing') return;  // already playing — no action needed
+    console.warn('[LoadTimeout] stream took too long — restarting:', ch.name);
+    await destroyPlayer();
+    if (!activeChannel || ch.id !== activeChannel.id) return;
+    startStream(activeChannel.url);
+  }, 30000); // 30 s limit
+}
+
+function clearLoadTimeout() {
+  clearTimeout(loadTimeoutTimer);
+  loadTimeoutTimer = null;
+}
+
+function startStallWatchdog() {
+  stopStallWatchdog();
+  stallLastTime = -1;
+  stallLastCheck = Date.now();
+  stallRecoveryCount = 0;
+  stallTimer = setInterval(_stallCheck, STALL_CHECK_MS);
+}
+
+function stopStallWatchdog() {
+  clearInterval(stallTimer);
+  stallTimer = null;
+  stallLastTime = -1;
+}
+
+async function _stallCheck() {
+  const vid = document.getElementById('player-video');
+  if (!activeChannel) { stopStallWatchdog(); return; }
+  // Only watch when we expect playback to be happening
+  if (playerState !== 'playing' && playerState !== 'loading') return;
+  if (vid.paused) return;  // user-paused is fine
+
+  const now = Date.now();
+  const ct = vid.currentTime;
+
+  if (stallLastTime < 0) {
+    // First observation — just record
+    stallLastTime = ct;
+    stallLastCheck = now;
+    return;
+  }
+
+  const elapsed = now - stallLastCheck;
+  const advanced = ct - stallLastTime;
+
+  if (advanced > 0.05) {
+    // Time is advancing — all good, reset counter
+    stallLastTime = ct;
+    stallLastCheck = now;
+    stallRecoveryCount = 0;
+    return;
+  }
+
+  if (elapsed < STALL_GRACE_MS) return;  // give it more time
+
+  // currentTime hasn't moved in STALL_GRACE_MS — stalled
+  console.warn('[Stall] detected at', ct.toFixed(2), 's — recovery attempt', stallRecoveryCount + 1);
+  stallLastTime = -1;
+  stallLastCheck = now;
+  stallRecoveryCount++;
+
+  if (stallRecoveryCount > STALL_MAX_RETRIES) {
+    console.warn('[Stall] max retries reached — showing error');
+    stopStallWatchdog();
+    document.getElementById('error-title').textContent = 'Stream stalled';
+    document.getElementById('error-msg').textContent = 'The stream stopped delivering data. It may be a server-side issue. Try refreshing or selecting a different channel.';
+    setPlayerState('error');
+    return;
+  }
+
+  // Attempt recovery without full page reload
+  if (hlsPlayer) {
+    try {
+      hlsPlayer.recoverMediaError();
+      hlsPlayer.startLoad();
+      return;
+    } catch(e) { /* fall through to full restart */ }
+  }
+  if (shakaPlayer) {
+    try {
+      await shakaPlayer.retryStreaming();
+      return;
+    } catch(e) { /* fall through to full restart */ }
+  }
+
+  // Last resort: full stream restart
+  console.warn('[Stall] soft recovery failed — restarting stream');
+  if (activeChannel) startStream(activeChannel.url);
+}
+
+// ── Video Events ──────────────────────────────
+const video = document.getElementById('player-video');
+video.addEventListener('playing', () => {
+  clearLoadTimeout();
+  setPlayerState('playing');
+  startBwMonitor();
+  startStallWatchdog();
+});
+video.addEventListener('pause', () => {
+  if (playerState !== 'idle') setPlayerState('paused');
+  stopBwMonitor();
+  stopStallWatchdog();
+});
+video.addEventListener('waiting', () => { if (playerState === 'playing') setPlayerState('loading'); });
+video.addEventListener('timeupdate', () => {
+  if (!video.duration || !isFinite(video.duration)) return;
+  const pct = (video.currentTime / video.duration) * 100;
+  const bar = document.getElementById('progress-bar');
+  bar.value = pct; bar.style.setProperty('--val', pct + '%');
+  document.getElementById('time-current').textContent = fmt(video.currentTime);
+  document.getElementById('time-duration').textContent = fmt(video.duration);
+});
+document.getElementById('player-container').addEventListener('mousemove', showControls);
+document.getElementById('player-container').addEventListener('mouseleave', () => {
+  if (playerState === 'playing') document.getElementById('player-controls').classList.remove('visible');
+});
+document.getElementById('player-container').addEventListener('touchstart', () => {
+  showControls();
+}, {passive: true});
+
+function fmt(s) {
+  if (!isFinite(s)||isNaN(s)) return '--:--';
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=Math.floor(s%60);
+  if (h>0) return h+':'+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
+  return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
+}
+
+// ── Controls ──────────────────────────────────
+function togglePlay() {
+  if (!activeChannel || playerState === 'error' || playerState === 'idle') return;
+  if (video.paused) video.play(); else video.pause();
+}
+video.volume = 1; video.muted = false;
+function seekTo(v) {
+  if (video.duration && isFinite(video.duration)) {
+    video.currentTime = (v/100)*video.duration;
+    document.getElementById('progress-bar').style.setProperty('--val', v+'%');
+  }
+}
+function toggleFullscreen() {
+  const c = document.getElementById('player-container');
+  if (!document.fullscreenElement) c.requestFullscreen(); else document.exitFullscreen();
+}
+document.addEventListener('fullscreenchange', () => {
+  const fs = !!document.fullscreenElement;
+  document.getElementById('icon-expand').style.display = fs ? 'none' : '';
+  document.getElementById('icon-compress').style.display = fs ? '' : 'none';
+  if (fs) showControls();
+});
+document.addEventListener('webkitfullscreenchange', () => {
+  const fs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  document.getElementById('icon-expand').style.display = fs ? 'none' : '';
+  document.getElementById('icon-compress').style.display = fs ? '' : 'none';
+  if (fs) showControls();
+});
+document.addEventListener('keydown', e => {
+  if (!activeChannel || e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  if (e.code === 'ArrowRight') navigate(1);
+  if (e.code === 'ArrowLeft') navigate(-1);
+  if (e.code === 'KeyF') toggleFullscreen();
+  if (e.code === 'KeyM') toggleMute();
+});
+
+// ── Disclaimer ────────────────────────────────
+function closeDisclaimer() {
+  const modal = document.getElementById('disclaimer-modal');
+  modal.classList.add('hiding');
+  modal.addEventListener('animationend', () => {
+    modal.classList.add('hidden');
+    modal.classList.remove('hiding');
+  }, {once: true});
+}
+
+// ── Manual Playlist Refresh ───────────────────
+async function manualRefresh() {
+  const btn = document.getElementById('refresh-btn');
+  const icon = document.getElementById('refresh-icon');
+  btn.disabled = true;
+  icon.classList.add('spin');
+  await silentRefresh();
+  icon.classList.remove('spin');
+  btn.disabled = false;
+}
+
+// ── Silent Playlist Refresh (every hour) ──────
+async function silentRefresh() {
+  try {
+    const text = await fetchPlaylist(DEFAULT_PLAYLIST);
+    const pl = parseM3U(text, 'FreeTV');
+    playlist = pl;
+    document.getElementById('channel-count').textContent = pl.channels.length.toLocaleString() + ' channels';
+    renderList();
+  } catch(e) { /* silently ignore refresh errors */ }
+}
+setInterval(silentRefresh, 60 * 60 * 1000);
+
+// ── Auto-load on start ────────────────────────
+bootLoad();
+</script>
+</body>
+</html>

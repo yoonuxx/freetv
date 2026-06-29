@@ -1,0 +1,39 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+# Route all server API calls to their Netlify Function equivalents
+[[redirects]]
+  from   = "/fetch-playlist"
+  to     = "/.netlify/functions/fetch-playlist"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/proxy"
+  to     = "/.netlify/functions/proxy"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/proxy/*"
+  to     = "/.netlify/functions/proxy"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/license-proxy"
+  to     = "/.netlify/functions/license-proxy"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/stalker-resolve"
+  to     = "/.netlify/functions/stalker-resolve"
+  status = 200
+  force  = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
