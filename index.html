@@ -831,6 +831,7 @@ function proxyUrlHls(url, ua) {
   return u;
 }
 function proxyUrl(url) {          // query-param — used by Shaka + request filter
+  // Normalize protocol-relative (//cdn.com/...) to https:
   let normalized = url;
   if (normalized.startsWith('//')) normalized = 'https:' + normalized;
   return proxyBase() + '/proxy?url=' + encodeURIComponent(normalized);
@@ -1433,9 +1434,9 @@ async function _startShaka(video, loadUrl, ch) {
 
     const fallbackToCorsProxy = async () => {
       if (!activeChannel || ch.id !== activeChannel.id) return;
-      // Path-based proxy failed — try corsproxy.io as a last resort
-      // Derive the original URL from the proxied loadUrl
-            let originalUrl = loadUrl;
+      // Proxy failed — try corsproxy.io as a last resort
+      // Derive the original URL from the proxied loadUrl (?url= query-param format)
+      let originalUrl = loadUrl;
       try {
         const u = new URL(loadUrl, window.location.href);
         originalUrl = u.searchParams.get('url') || loadUrl;
@@ -1459,11 +1460,12 @@ async function _startShaka(video, loadUrl, ch) {
   } catch(e) {
     console.error('[Shaka] load failed code:', e && e.code, 'data:', e && JSON.stringify(e.data));
     if (!activeChannel || ch.id !== activeChannel.id) return;
-    // Path-based proxy threw on load — fall back to corsproxy.io
-    const originalUrl = loadUrl.replace(
-      new RegExp('^' + proxyBase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '/proxy/'),
-      ''
-    ).replace(/^(https?):\/([^/])/, '$1://$2');
+    // Proxy threw on load — fall back to corsproxy.io
+    let originalUrl = loadUrl;
+    try {
+      const u = new URL(loadUrl, window.location.href);
+      originalUrl = u.searchParams.get('url') || loadUrl;
+    } catch(_) {}
     await _startShakaAuto(video, originalUrl, ch, true);
   }
 }
