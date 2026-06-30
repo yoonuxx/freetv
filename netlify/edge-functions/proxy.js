@@ -67,12 +67,17 @@ export default async function(request, context) {
 
   let targetUrl = url.searchParams.get('url');
   if (!targetUrl) {
-    const stripped = url.pathname.replace(/^\/?proxy\//, '');
-    targetUrl = stripped.replace(/^(https?):\/([^/])/, '$1://$2');
+    return new Response(JSON.stringify({ error: 'No URL provided' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
   }
-  if (!targetUrl) {
-    return new Response(JSON.stringify({ error: 'No URL provided' }), { status: 400 });
-  }
+
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': '*',
+    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+  };
 
   try {
     const reqHeaders = {
@@ -83,12 +88,6 @@ export default async function(request, context) {
     if (range) reqHeaders['Range'] = range;
 
     const upstream = await fetch(targetUrl, { headers: reqHeaders });
-
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': '*',
-      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-    };
 
     const contentType = upstream.headers.get('content-type') || '';
     const isM3U8 = contentType.includes('mpegurl') ||
@@ -110,16 +109,18 @@ export default async function(request, context) {
       });
     }
 
+    // Buffer all binary responses — streaming via upstream.body is unreliable
+    // on Netlify edge functions for non-text content types.
+    const buffer = await upstream.arrayBuffer();
+
     const resHeaders = { ...corsHeaders };
     resHeaders['Content-Type'] = contentType || 'application/octet-stream';
     const cr = upstream.headers.get('content-range');
     if (cr) resHeaders['Content-Range'] = cr;
     const ar = upstream.headers.get('accept-ranges');
     if (ar) resHeaders['Accept-Ranges'] = ar;
-    const cl = upstream.headers.get('content-length');
-    if (cl) resHeaders['Content-Length'] = cl;
 
-    return new Response(upstream.body, {
+    return new Response(buffer, {
       status: upstream.status,
       headers: resHeaders,
     });
