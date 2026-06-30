@@ -3,11 +3,10 @@
   functions = "netlify/functions"
   edge_functions = "netlify/edge-functions"
 
-[[redirects]]
-  from   = "/proxy"
-  to     = "/.netlify/functions/proxy"
-  status = 200
-  force  = true
+# /proxy?url=... → edge function (buffers binary, rewrites M3U8, no path-stripping issues)
+[[edge_functions]]
+  path = "/proxy"
+  function = "proxy"
 
 [[redirects]]
   from   = "/fetch-playlist"
