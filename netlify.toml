@@ -3,9 +3,11 @@
   functions = "netlify/functions"
   edge_functions = "netlify/edge-functions"
 
-[[edge_functions]]
-  path = "/proxy"
-  function = "proxy"
+[[redirects]]
+  from   = "/proxy"
+  to     = "/.netlify/functions/proxy"
+  status = 200
+  force  = true
 
 [[redirects]]
   from   = "/fetch-playlist"
