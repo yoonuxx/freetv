@@ -3,17 +3,9 @@
   functions = "netlify/functions"
   edge_functions = "netlify/edge-functions"
 
-# /proxy?url=... (query-param) → edge function — streams binary, no size limit (for HLS .m3u8)
 [[edge_functions]]
   path = "/proxy"
   function = "proxy"
-
-# /proxy/https:/... (path-based) → regular function — used by Shaka for DASH/MPD
-[[redirects]]
-  from   = "/proxy/*"
-  to     = "/.netlify/functions/proxy"
-  status = 200
-  force  = true
 
 [[redirects]]
   from   = "/fetch-playlist"
