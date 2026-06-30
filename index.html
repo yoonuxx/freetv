@@ -830,16 +830,10 @@ function proxyUrlHls(url, ua) {
   if (ua) u += '&ua=' + encodeURIComponent(ua);
   return u;
 }
-function proxyUrl(url) {          // path-based — used by Shaka + request filter
-  // Normalize protocol-relative (//cdn.com/...) to https:
+function proxyUrl(url) {          // query-param — used by Shaka + request filter
   let normalized = url;
   if (normalized.startsWith('//')) normalized = 'https:' + normalized;
-  // Intentionally collapse https:// → https:/ in the path to avoid reverse-proxy
-  // normalization that can mangle double-slashes (e.g. Replit's nginx).
-  // The server restores :// before fetching the upstream URL.
-  // Relative URL resolution still works because Shaka sees the single-slash form
-  // as the base and resolves sub-paths correctly.
-  return proxyBase() + '/proxy/' + normalized.replace(/^(https?):\/\//, '$1:/');
+  return proxyBase() + '/proxy?url=' + encodeURIComponent(normalized);
 }
 
 // Parse IPTV DRM key field: "https://license.url|Header:value|Header2:value2"
@@ -1441,10 +1435,11 @@ async function _startShaka(video, loadUrl, ch) {
       if (!activeChannel || ch.id !== activeChannel.id) return;
       // Path-based proxy failed — try corsproxy.io as a last resort
       // Derive the original URL from the proxied loadUrl
-      const originalUrl = loadUrl.replace(
-        new RegExp('^' + proxyBase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '/proxy/'),
-        ''
-      ).replace(/^(https?):\/([^/])/, '$1://$2');
+            let originalUrl = loadUrl;
+      try {
+        const u = new URL(loadUrl, window.location.href);
+        originalUrl = u.searchParams.get('url') || loadUrl;
+      } catch(e) {}
       await destroyPlayer();
       if (!activeChannel || ch.id !== activeChannel.id) return;
       await _startShakaAuto(video, originalUrl, ch, true);
