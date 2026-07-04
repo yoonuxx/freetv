@@ -1392,9 +1392,15 @@ async function _startShaka(video, loadUrl, ch) {
     const parsed = parseLicenseKey(ch.drmKey);
     licenseHeaders = parsed.headers;
 
-    if (drmType === 'widevine' || drmType === 'com.widevine.alpha') {
+        if (drmType === 'widevine' || drmType === 'com.widevine.alpha') {
       config.drm = {
-        servers: { 'com.widevine.alpha': licenseProxyUrl(parsed.url, parsed.headers) }
+        servers: { 'com.widevine.alpha': licenseProxyUrl(parsed.url, parsed.headers) },
+        advanced: {
+          'com.widevine.alpha': {
+            videoRobustness: ['SW_SECURE_CRYPTO', 'SW_SECURE_DECODE', ''],
+            audioRobustness: ['SW_SECURE_CRYPTO', '']
+          }
+        }
       };
     } else if (drmType === 'playready' || drmType === 'com.microsoft.playready') {
       config.drm = {
