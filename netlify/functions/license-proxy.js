@@ -14,6 +14,15 @@ exports.handler = async function(event) {
       'Content-Type': event.headers['content-type'] || 'application/octet-stream',
     };
     if (event.headers['authorization']) reqHeaders['Authorization'] = event.headers['authorization'];
+        const hdrsParam = (event.queryStringParameters || {}).hdrs;
+    if (hdrsParam) {
+      try {
+        const extraHeaders = JSON.parse(hdrsParam);
+        for (const [key, value] of Object.entries(extraHeaders)) {
+          if (key && value != null) reqHeaders[key] = String(value);
+        }
+      } catch (e) { /* ignore malformed hdrs param */ }
+    }
 
     const body = event.isBase64Encoded
       ? Buffer.from(event.body, 'base64')
