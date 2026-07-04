@@ -837,6 +837,11 @@ function proxyUrl(url) {          // query-param — used by Shaka + request fil
   return proxyBase() + '/proxy?url=' + encodeURIComponent(normalized);
 }
 
+  function isClearKeyType(drmType) {
+  const t = (drmType || '').toLowerCase();
+  return t === 'clearkey' || t === 'org.w3.clearkey';
+}
+  
 // Parse IPTV DRM key field: "https://license.url|Header:value|Header2:value2"
 function parseLicenseKey(key) {
   const parts = (key || '').split('|');
