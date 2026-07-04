@@ -1218,7 +1218,7 @@ async function _startShakaAuto(video, url, ch, viaProxy) {
   };
 
   // ClearKey DRM handled entirely in-browser by Shaka (no license server request)
-  const isClearKey = ch && ch.drmType === 'clearkey' && ch.drmKey;
+  const isClearKey = ch && isClearKeyType(ch.drmType) && ch.drmKey;
   if (isClearKey) {
     const parts = ch.drmKey.split(':');
     if (parts.length === 2) {
@@ -1376,7 +1376,7 @@ async function _startShaka(video, loadUrl, ch) {
 
   let licenseHeaders = {};
 
-  const isClearKey = ch && ch.drmType === 'clearkey' && ch.drmKey;
+  const isClearKey = ch && isClearKeyType(ch.drmType) && ch.drmKey;
 
   if (isClearKey) {
     // ClearKey: keyId:keyValue (both 32-char hex = 16-byte AES-128).
