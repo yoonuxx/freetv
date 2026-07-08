@@ -830,11 +830,13 @@ function proxyUrlHls(url, ua) {
   if (ua) u += '&ua=' + encodeURIComponent(ua);
   return u;
 }
-function proxyUrl(url) {          // query-param — used by Shaka + request filter
+function proxyUrl(url, ua) {          // query-param — used by Shaka + request filter
   // Normalize protocol-relative (//cdn.com/...) to https:
   let normalized = url;
   if (normalized.startsWith('//')) normalized = 'https:' + normalized;
-  return proxyBase() + '/proxy?url=' + encodeURIComponent(normalized);
+  let u = proxyBase() + '/proxy?url=' + encodeURIComponent(normalized);
+  if (ua) u += '&ua=' + encodeURIComponent(ua);
+  return u;
 }
 
   function isClearKeyType(drmType) {
@@ -1236,7 +1238,8 @@ async function _startShakaAuto(video, url, ch, viaProxy) {
     document.getElementById('proxy-note').style.display = '';
     // Use path-based proxy next (works for most CDNs including aiv-cdn.net/gru-nitro).
     // _startShaka itself falls back to corsproxy.io if the path proxy also fails.
-    await _startShaka(video, proxyUrl(url), ch);
+    const chUa = ch && ch.userAgent ? ch.userAgent : null;
+    await _startShaka(video, proxyUrl(url, chUa), ch);
   };
 
   try {
@@ -1437,7 +1440,7 @@ async function _startShaka(video, loadUrl, ch) {
           request.uris[0] = licenseProxyUrl(u, licenseHeaders);
         }
       } else {
-        request.uris[0] = proxyUrl(u);
+        request.uris[0] = proxyUrl(u, ch && ch.userAgent ? ch.userAgent : null);
       }
     });
 
@@ -1555,6 +1558,28 @@ let bwLastBytes = 0;
 let bwWindowBytes = [];  // [{bytes, ts}] sliding 3-second window
 
 function bwResponseFilter(type, response) {
+  // Fix relative-URL resolution for DASH manifests fetched through our proxy.
+  // Shaka resolves relative BaseURL/media/initialization references in a
+  // manifest against response.uri (the URL it was actually fetched from).
+  // Since we fetch manifests via /proxy?url=<real-url>, response.uri is our
+  // own proxy URL — resolving relative refs against it produces broken,
+  // same-origin URLs instead of real CDN URLs. Point response.uri back at
+  // the real upstream manifest URL so relative resolution works correctly.
+  if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST && response.uri) {
+    try {
+      const u = new URL(response.uri, window.location.href);
+      // Only rewrite URLs that are actually our own /proxy endpoint — a
+      // direct upstream manifest URL that happens to have its own `url`
+      // query param must not be touched, or we'd point Shaka at the wrong base.
+      const isOurProxy = u.origin === window.location.origin && u.pathname === '/proxy';
+      const real = isOurProxy ? u.searchParams.get('url') : null;
+      if (real) {
+        response.uri = real;
+        response.originalUri = real;
+      }
+    } catch (e) { /* not one of our proxy URLs — leave as-is */ }
+  }
+
   const bytes = response.data ? response.data.byteLength : 0;
   if (bytes > 0) {
     bwWindowBytes.push({ bytes, ts: Date.now() });
