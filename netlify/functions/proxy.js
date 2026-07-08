@@ -13,9 +13,15 @@ exports.handler = async function(event) {
     return { statusCode: 400, body: JSON.stringify({ error: 'No URL provided' }) };
   }
 
+  // Per-channel User-Agent override (from the M3U's #EXTVLCOPT/KODIPROP
+  // http-user-agent). Some CDNs (e.g. certain sports channels) reject
+  // requests unless the exact device/app UA is used, so this must win over
+  // our default desktop UA when the client supplies one.
+  const ua = (event.queryStringParameters || {}).ua;
+
   try {
     const reqHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'User-Agent': ua || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       'Accept': '*/*',
     };
     if (event.headers['range'])   reqHeaders['Range']   = event.headers['range'];
@@ -42,7 +48,7 @@ exports.handler = async function(event) {
       const proto = (event.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
       const host  = event.headers['host'] || event.headers['x-forwarded-host'] || '';
       const proxyBase = `${proto}://${host}/proxy`;
-      const rewritten = rewriteM3U8(text, url, proxyBase);
+      const rewritten = rewriteM3U8(text, url, proxyBase, ua);
       resHeaders['Content-Type'] = 'application/vnd.apple.mpegurl';
       return { statusCode: response.status, headers: resHeaders, body: rewritten };
     }
@@ -57,8 +63,9 @@ exports.handler = async function(event) {
 
 // Rewrite all URLs in an M3U8 so they are fetched through the proxy.
 // Handles: relative paths, absolute HTTP/HTTPS URLs, and URI= attributes in tags.
-function rewriteM3U8(content, originalUrl, proxyBase) {
+function rewriteM3U8(content, originalUrl, proxyBase, ua) {
   const base = originalUrl.replace(/[^/?#]*([?#].*)?$/, '');
+  const uaSuffix = ua ? '&ua=' + encodeURIComponent(ua) : '';
 
   function resolveUrl(uri) {
     if (!uri) return uri;
@@ -73,7 +80,11 @@ function rewriteM3U8(content, originalUrl, proxyBase) {
   function proxify(uri) {
     if (!uri) return uri;
     const absolute = resolveUrl(uri);
-    return proxyBase + '?url=' + encodeURIComponent(absolute);
+    // Preserve the caller-supplied User-Agent on every nested segment/key/map
+    // request. Some upstream CDNs (e.g. certain sports channels) reject
+    // requests unless the exact device/app UA is used, so dropping it here
+    // would silently break playback for those channels specifically.
+    return proxyBase + '?url=' + encodeURIComponent(absolute) + uaSuffix;
   }
 
   return content.split('\n').map(line => {
