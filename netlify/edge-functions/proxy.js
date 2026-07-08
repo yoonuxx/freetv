@@ -1,5 +1,6 @@
-function rewriteM3U8(content, originalUrl, proxyBase) {
+function rewriteM3U8(content, originalUrl, proxyBase, ua) {
   const base = originalUrl.replace(/[^/?#]*([?#].*)?$/, '');
+  const uaSuffix = ua ? '&ua=' + encodeURIComponent(ua) : '';
 
   function resolveUrl(uri) {
     if (/^https?:\/\//i.test(uri)) return uri;
@@ -12,7 +13,11 @@ function rewriteM3U8(content, originalUrl, proxyBase) {
   }
 
   function proxify(uri) {
-    return proxyBase + '?url=' + encodeURIComponent(resolveUrl(uri));
+    // Preserve the caller-supplied User-Agent on every nested segment/key/map
+    // request. Some upstream CDNs (e.g. certain sports channels) reject
+    // requests unless the exact device/app UA is used, so dropping it here
+    // would silently break playback for those channels specifically.
+    return proxyBase + '?url=' + encodeURIComponent(resolveUrl(uri)) + uaSuffix;
   }
 
   const lines = content.split('\n');
@@ -79,9 +84,15 @@ export default async function(request, context) {
     'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
   };
 
+  // Per-channel User-Agent override (from the M3U's #EXTVLCOPT/KODIPROP
+  // http-user-agent). Some CDNs (e.g. certain sports channels) reject
+  // requests unless the exact device/app UA is used, so this must win over
+  // our default desktop UA when the client supplies one.
+  const ua = url.searchParams.get('ua');
+
   try {
     const reqHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'User-Agent': ua || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       'Accept': '*/*',
     };
     const range = request.headers.get('range');
@@ -98,7 +109,7 @@ export default async function(request, context) {
       const text = await upstream.text();
       const host = request.headers.get('host') || url.host;
       const proxyBase = `https://${host}/proxy`;
-      const rewritten = rewriteM3U8(text, targetUrl, proxyBase);
+      const rewritten = rewriteM3U8(text, targetUrl, proxyBase, ua);
       return new Response(rewritten, {
         status: upstream.status,
         headers: {
