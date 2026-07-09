@@ -13,10 +13,6 @@ function rewriteM3U8(content, originalUrl, proxyBase, ua) {
   }
 
   function proxify(uri) {
-    // Preserve the caller-supplied User-Agent on every nested segment/key/map
-    // request. Some upstream CDNs (e.g. certain sports channels) reject
-    // requests unless the exact device/app UA is used, so dropping it here
-    // would silently break playback for those channels specifically.
     return proxyBase + '?url=' + encodeURIComponent(resolveUrl(uri)) + uaSuffix;
   }
 
@@ -84,18 +80,11 @@ export default async function(request, context) {
     'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
   };
 
-  // Per-channel User-Agent override (from the M3U's #EXTVLCOPT/KODIPROP
-  // http-user-agent). Some CDNs (e.g. certain sports channels) reject
-  // requests unless the exact device/app UA is used, so this must win over
-  // our default desktop UA when the client supplies one.
   const ua = url.searchParams.get('ua');
 
   // Guard every upstream fetch with a hard timeout. Without this, a stalled
   // connection to a flaky/overloaded CDN (common on "4K" sports channels)
-  // keeps the isolate's socket + memory pinned indefinitely. Over time those
-  // stuck requests pile up on the same warm Netlify Edge isolate and it stops
-  // serving anything until it's finally recycled — this is what produces the
-  // "works for a while, then dies" pattern instead of a clean, immediate error.
+  // keeps the isolate's socket + memory pinned indefinitely.
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
 
@@ -107,7 +96,23 @@ export default async function(request, context) {
     const range = request.headers.get('range');
     if (range) reqHeaders['Range'] = range;
 
-    const upstream = await fetch(targetUrl, { headers: reqHeaders, signal: controller.signal });
+    // Retry transient upstream failures (rate-limit/server hiccups) a couple
+    // times with a short backoff before giving up.
+    let upstream;
+    let lastErr;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        upstream = await fetch(targetUrl, { headers: reqHeaders, signal: controller.signal });
+        if (upstream.ok || upstream.status === 206 || (range && upstream.status < 500)) break;
+        if (upstream.status < 500 && upstream.status !== 429) break;
+      } catch (e) {
+        lastErr = e;
+        upstream = null;
+        if (e && e.name === 'AbortError') break;
+      }
+      if (attempt < 2) await new Promise(r => setTimeout(r, 300 * (attempt + 1)));
+    }
+    if (!upstream) throw lastErr || new Error('Upstream fetch failed');
 
     const contentType = upstream.headers.get('content-type') || '';
     const isM3U8 = contentType.includes('mpegurl') ||
@@ -130,11 +135,6 @@ export default async function(request, context) {
       });
     }
 
-    // Stream binary segments straight through instead of buffering the whole
-    // thing into an ArrayBuffer. Large 4K segments (multi-MB each) buffered
-    // repeatedly on a warm/reused isolate accumulate memory pressure until
-    // the isolate is killed by the platform — streaming avoids holding the
-    // full payload in memory at any point and also lowers time-to-first-byte.
     const resHeaders = { ...corsHeaders };
     resHeaders['Content-Type'] = contentType || 'application/octet-stream';
     const cr = upstream.headers.get('content-range');
@@ -144,8 +144,6 @@ export default async function(request, context) {
     const cl = upstream.headers.get('content-length');
     if (cl) resHeaders['Content-Length'] = cl;
 
-    // Clear the abort timer once the response body starts streaming; the
-    // fetch itself already resolved, we just don't want to abort mid-stream.
     clearTimeout(timeout);
 
     return new Response(upstream.body, {
