@@ -90,6 +90,15 @@ export default async function(request, context) {
   // our default desktop UA when the client supplies one.
   const ua = url.searchParams.get('ua');
 
+  // Guard every upstream fetch with a hard timeout. Without this, a stalled
+  // connection to a flaky/overloaded CDN (common on "4K" sports channels)
+  // keeps the isolate's socket + memory pinned indefinitely. Over time those
+  // stuck requests pile up on the same warm Netlify Edge isolate and it stops
+  // serving anything until it's finally recycled — this is what produces the
+  // "works for a while, then dies" pattern instead of a clean, immediate error.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+
   try {
     const reqHeaders = {
       'User-Agent': ua || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -98,7 +107,7 @@ export default async function(request, context) {
     const range = request.headers.get('range');
     if (range) reqHeaders['Range'] = range;
 
-    const upstream = await fetch(targetUrl, { headers: reqHeaders });
+    const upstream = await fetch(targetUrl, { headers: reqHeaders, signal: controller.signal });
 
     const contentType = upstream.headers.get('content-type') || '';
     const isM3U8 = contentType.includes('mpegurl') ||
@@ -107,6 +116,7 @@ export default async function(request, context) {
 
     if (isM3U8) {
       const text = await upstream.text();
+      clearTimeout(timeout);
       const host = request.headers.get('host') || url.host;
       const proxyBase = `https://${host}/proxy`;
       const rewritten = rewriteM3U8(text, targetUrl, proxyBase, ua);
@@ -120,23 +130,32 @@ export default async function(request, context) {
       });
     }
 
-    // Buffer all binary responses — streaming via upstream.body is unreliable
-    // on Netlify edge functions for non-text content types.
-    const buffer = await upstream.arrayBuffer();
-
+    // Stream binary segments straight through instead of buffering the whole
+    // thing into an ArrayBuffer. Large 4K segments (multi-MB each) buffered
+    // repeatedly on a warm/reused isolate accumulate memory pressure until
+    // the isolate is killed by the platform — streaming avoids holding the
+    // full payload in memory at any point and also lowers time-to-first-byte.
     const resHeaders = { ...corsHeaders };
     resHeaders['Content-Type'] = contentType || 'application/octet-stream';
     const cr = upstream.headers.get('content-range');
     if (cr) resHeaders['Content-Range'] = cr;
     const ar = upstream.headers.get('accept-ranges');
     if (ar) resHeaders['Accept-Ranges'] = ar;
+    const cl = upstream.headers.get('content-length');
+    if (cl) resHeaders['Content-Length'] = cl;
 
-    return new Response(buffer, {
+    // Clear the abort timer once the response body starts streaming; the
+    // fetch itself already resolved, we just don't want to abort mid-stream.
+    clearTimeout(timeout);
+
+    return new Response(upstream.body, {
       status: upstream.status,
       headers: resHeaders,
     });
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    clearTimeout(timeout);
+    const message = err && err.name === 'AbortError' ? 'Upstream timed out' : (err && err.message) || 'Proxy error';
+    return new Response(JSON.stringify({ error: message }), {
       status: 502,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     });
