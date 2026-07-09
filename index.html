@@ -526,6 +526,7 @@ let usingProxy = false;
 let shakaPlayer = null;
 let hlsPlayer = null;
 let hlsNetRetryCount = 0;
+let shakaNetRetryCount = 0;
 let controlsTimer = null;
 let playerState = 'idle';
 let autoProxyPending = false;
@@ -1275,11 +1276,12 @@ async function _startShakaAuto(video, url, ch, viaProxy) {
       if (!viaProxy) {
         await retryWithProxy();
       } else {
-        setShakaError(event.detail);
+        await retryShakaViaProxyOrGiveUp(video, url, ch, event.detail);
       }
     });
 
     await player.load(loadUrl);
+    shakaNetRetryCount = 0;
     video.play().catch(() => {});
     updateQualityMenu();
     initPiP();
@@ -1288,8 +1290,34 @@ async function _startShakaAuto(video, url, ch, viaProxy) {
     if (!viaProxy) {
       await retryWithProxy();
     } else {
-      setShakaError(e);
+      await retryShakaViaProxyOrGiveUp(video, url, ch, e);
     }
+  }
+}
+
+// Last-resort path (corsproxy.io) for a DASH/Shaka channel just failed. The
+// public corsproxy.io service is shared by countless unrelated sites and is
+// frequently rate-limited/flaky, so a single failure here doesn't mean the
+// stream itself is dead — back off with increasing delay and retry a few
+// times, then do a full reload (fresh manifest fetch, in case the source
+// issues short-lived tokens) before finally surfacing an error to the user.
+async function retryShakaViaProxyOrGiveUp(video, rawUrl, ch, err) {
+  shakaNetRetryCount = (shakaNetRetryCount || 0) + 1;
+  if (shakaNetRetryCount > 5) {
+    shakaNetRetryCount = 0;
+    setShakaError(err);
+    return;
+  }
+  const delay = Math.min(1000 * Math.pow(2, shakaNetRetryCount - 1), 15000);
+  await new Promise(r => setTimeout(r, delay));
+  if (!activeChannel || ch.id !== activeChannel.id) return;
+  await destroyPlayer();
+  if (!activeChannel || ch.id !== activeChannel.id) return;
+  if (shakaNetRetryCount >= 3) {
+    // Full reload from scratch — fresh manifest/token, fresh proxy attempt.
+    await startStream(rawUrl);
+  } else {
+    await _startShakaAuto(video, rawUrl, ch, true);
   }
 }
 
