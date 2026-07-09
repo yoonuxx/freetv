@@ -525,6 +525,7 @@ let sidebarOpen = true;
 let usingProxy = false;
 let shakaPlayer = null;
 let hlsPlayer = null;
+let hlsNetRetryCount = 0;
 let controlsTimer = null;
 let playerState = 'idle';
 let autoProxyPending = false;
@@ -1325,6 +1326,7 @@ async function _startHLS(video, loadUrl, ch, rawUrl, viaCorsProxy) {
   hls.attachMedia(video);
 
   hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    hlsNetRetryCount = 0;
     video.play().catch(() => {});
     updateQualityMenuHLS();
     initPiP();
@@ -1354,7 +1356,31 @@ async function _startHLS(video, loadUrl, ch, rawUrl, viaCorsProxy) {
         document.getElementById('proxy-note').style.display = '';
         _startHLS(video, CORS_PROXY + encodeURIComponent(rawUrl), ch, rawUrl, true);
       } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-        hls.startLoad();
+        // Last-resort path already exhausted (via corsproxy.io) and it's still
+        // failing. Some CDNs (esp. "4K" sports feeds) throttle/blacklist a
+        // source IP for a short window rather than forever, and some manifests
+        // carry short-lived signed tokens — hammering hls.startLoad() on the
+        // exact same URL with no delay just re-triggers the block instantly.
+        // Back off with increasing delay, and after a few attempts re-fetch a
+        // completely fresh channel URL/token instead of reusing the stale one.
+        hlsNetRetryCount = (hlsNetRetryCount || 0) + 1;
+        if (hlsNetRetryCount > 5) {
+          hlsNetRetryCount = 0;
+          setPlayerState('error');
+          return;
+        }
+        const delay = Math.min(1000 * Math.pow(2, hlsNetRetryCount - 1), 15000);
+        if (hlsNetRetryCount >= 3) {
+          // Give the upstream a real cooldown, then restart the whole chain
+          // from scratch (fresh manifest fetch = fresh token if the source
+          // uses short-lived signed URLs).
+          const retryChannel = ch, retryUrl = ch && ch.url;
+          setTimeout(() => {
+            if (activeChannel && activeChannel.id === retryChannel.id) startStream(retryUrl);
+          }, delay);
+        } else {
+          setTimeout(() => { if (hlsPlayer === hls) hls.startLoad(); }, delay);
+        }
       } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
         hls.recoverMediaError();
       } else {
