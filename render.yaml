@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: freetv-player
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run start
+    autoDeploy: true
